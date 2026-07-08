@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>个股分红复投回测</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f7f8fa;
+    color: #333;
+    padding: 22px;
+  }
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    padding: 24px 28px;
+    margin-bottom: 22px;
+  }
+  .card h2 {
+    font-size: 18px;
+    color: #222;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    font-weight: 700;
+  }
+  .card h2::before {
+    content: "";
+    display: inline-block;
+    width: 5px; height: 20px;
+    background: linear-gradient(180deg, #c10000, #e50012);
+    border-radius: 3px;
+    margin-right: 10px;
+  }
+  .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-end;
+  }
+  .form-group { flex: 1; min-width: 200px; }
+  .form-group label {
+    display: block;
+    font-size: 13.5px;
+    color: #555;
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 10px 13px;
+    font-size: 15px;
+    border: 1px solid #d5d5d5;
+    border-radius: 6px;
+    outline: none;
+    font-family: inherit;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .form-group input:focus {
+    border-color: #c10000;
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.08);
+  }
+  .form-group input[readonly] { background: #fafafa; color: #666; }
+  .form-group .hint { font-size: 12px; color: #999; margin-top: 5px; }
+
+  .btn-group {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    align-items: center;
+  }
+  .btn {
+    padding: 10px 30px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .2s;
+    font-family: inherit;
+  }
+  .btn-primary {
+    background: #c10000; color: #fff;
+  }
+  .btn-primary:hover { background: #a50000; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(193,0,0,0.25); }
+  .btn-primary:disabled { background: #c99; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-secondary { background: #f0f0f0; color: #555; }
+  .btn-secondary:hover { background: #e5e5e5; color: #222; }
+
+  .status-msg {
+    font-size: 13.5px;
+    min-height: 22px;
+    margin-left: 8px;
+  }
+  .status-msg.err { color: #c10000; }
+  .status-msg.ok  { color: #1a8c54; }
+  .status-msg.info{ color: #0a4b8f; }
+
+  /* 汇总区 */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+  }
+  .summary-item {
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #fffaf0, #fff);
+    border: 1px solid #ffe7be;
+    border-radius: 8px;
+  }
+  .summary-item.red {
+    background: linear-gradient(135deg, #fff9f9, #fff);
+    border-color: #ffd9d9;
+  }
+  .summary-item.blue {
+    background: linear-gradient(135deg, #f5f9ff, #fff);
+    border-color: #cfe0ff;
+  }
+  .summary-label {
+    font-size: 12.5px; color: #777; margin-bottom: 6px;
+  }
+  .summary-value {
+    font-size: 20px; font-weight: 700; color: #333; letter-spacing: 0.5px;
+    word-break: break-all;
+  }
+  .summary-value.red { color: #c10000; }
+  .summary-value.green { color: #1a8c54; }
+  .summary-value.blue { color: #0a4b8f; }
+  .summary-sub {
+    font-size: 12px; color: #888; margin-top: 4px;
+  }
+
+  /* 明细表格 */
+  .tbl-wrap {
+    overflow-x: auto;
+    margin-top: 18px;
+    border-radius: 6px;
+    border: 1px solid #eee;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1200px;
+    font-size: 13px;
+  }
+  thead th {
+    position: sticky; top: 0;
+    background: #f5f5f5;
+    color: #333;
+    text-align: center;
+    padding: 10px 8px;
+    border-bottom: 2px solid #e0e0e0;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 9px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    text-align: right;
+    white-space: nowrap;
+    color: #333;
+    font-variant-numeric: tabular-nums;
+  }
+  tbody td:first-child { text-align: center; }
+  tbody td.center { text-align: center; }
+  tbody tr:hover { background: #fbf6ef; }
+  tbody tr:nth-child(even) { background: #fbfbfb; }
+  tbody tr:nth-child(even):hover { background: #fbf6ef; }
+  .num-up { color: #c10000; }
+  .num-dn { color: #1a8c54; }
+  .tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .tag.gift { background: #fff3d6; color: #9a6500; }
+  .tag.trans{ background: #e6f3ff; color: #1059a6; }
+  .tag.div  { background: #fdf0f0; color: #c10000; }
+
+  #details-section { display: none; }
+
+  /* loading spinner */
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2.5px solid #ccc;
+    border-top-color: #c10000;
+    border-radius: 50%;
+    vertical-align: -3px;
+    margin-right: 6px;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 证券名称 chip */
+  .sec-chip {
+    display:inline-flex; align-items:center; gap:8px;
+    background: linear-gradient(135deg, #eaf3ff 0%, #d9e9ff 100%);
+    color: #0a4b8f;
+    border: 1px solid #bcd6ff;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px; font-weight: 700;
+    margin-right: 14px;
+    box-shadow: 0 1px 3px rgba(20,70,150,0.07);
+    vertical-align: middle;
+  }
+  .sec-chip .sec-name { color: #0a4b8f; }
+  .sec-chip .sec-code { color: #4a71a8; font-weight: 600; font-size: 13px; opacity: 0.9; }
+
+  /* 明细区头部 */
+  .detail-header { display:flex; align-items:center; justify-content:space-between; gap: 12px; margin-bottom: 6px; }
+  .detail-header h2 { margin: 0; }
+  .col-btn {
+    display:inline-flex; align-items:center; gap:4px;
+    background:#fff; border:1px solid #cfd6df;
+    color:#334; padding: 5px 12px; font-size: 13px;
+    border-radius: 6px; cursor: pointer; user-select: none;
+    transition: all 0.15s;
+  }
+  .col-btn:hover { border-color:#8aa8dc; color:#0a4b8f; background:#f5faff; }
+
+  /* 列设置弹出面板 */
+  .col-panel {
+    position: absolute; right: 0; top: 38px; z-index: 20;
+    background: #fff; border: 1px solid #dfe5ee;
+    border-radius: 8px; box-shadow: 0 6px 24px rgba(30,50,90,0.13);
+    padding: 10px 6px; min-width: 260px;
+  }
+  .col-panel .panel-title {
+    font-size: 13px; color: #667; padding: 2px 10px 8px;
+    border-bottom: 1px dashed #e6ebf2; margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .col-panel .panel-title a {
+    color:#6d8ab8; font-weight:400; font-size:12px; cursor:pointer; margin-left: 8px;
+  }
+  .col-panel .panel-title a:hover { color:#0a4b8f; text-decoration: underline; }
+  .col-panel label {
+    display:flex; align-items:center; gap:8px;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 13px; color: #334; cursor: pointer;
+  }
+  .col-panel label:hover { background: #f2f7ff; }
+  .col-panel label input[type="checkbox"] { width: 15px; height: 15px; accent-color: #0a4b8f; }
+  #details-section { position: relative; }
+
+  /* 列隐藏类 */
+  .col-hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ======== 输入卡片 ======== -->
+  <div class="card">
+    <h2>个股分红复投回测参数</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>股票代码（6 位数字）</label>
+        <input type="text" id="symbol" maxlength="6" placeholder="例如 600519" value="600519">
+        <div class="hint">支持直接写 6 位数字，或形如 600519.SH / 000001.SZ</div>
+      </div>
+      <div class="form-group">
+        <label>买入日期</label>
+        <input type="date" id="buy_date" value="2010-01-04">
+        <div class="hint">若买入日非交易日，自动取首个交易日</div>
+      </div>
+      <div class="form-group">
+        <label>买入本金（元）</label>
+        <input type="number" id="principal" placeholder="请输入本金" value="100000" min="1000" step="1000">
+        <div class="hint">至少够买 100 股（≥ 买入价 × 100）</div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-run" onclick="runBacktest()">开始回测</button>
+      <button class="btn btn-secondary" onclick="clearAll()">清空</button>
+      <span class="status-msg info" id="status">💡 请输入参数后点"开始回测"。数据源：akshare（不复权日线 + 东方财富分红送股）。</span>
+    </div>
+  </div>
+
+  <!-- ======== 汇总卡片 ======== -->
+  <div class="card" id="summary-section" style="display:none;">
+    <h2>回测结果汇总：<span id="s-sec-chip" class="sec-chip" style="display:none;"></span></h2>
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="summary-label">初始买入（实际交易日）</div>
+        <div class="summary-value" id="s-buy"></div>
+        <div class="summary-sub" id="s-buy-sub"></div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">初始股本 / 买入价</div>
+        <div class="summary-value" id="s-shares0"></div>
+        <div class="summary-sub" id="s-price0"></div>
+      </div>
+      <div class="summary-item blue">
+        <div class="summary-label">近一交易日收盘价</div>
+        <div class="summary-value blue" id="s-latest-price"></div>
+        <div class="summary-sub" id="s-latest-date"></div>
+      </div>
+      <div class="summary-item red">
+        <div class="summary-label">当前持有股本</div>
+        <div class="summary-value red" id="s-cur-shares"></div>
+        <div class="summary-sub">较初始增长 <span id="s-grow"></span> 倍</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">当前持有市值</div>
+        <div class="summary-value" id="s-mv"></div>
+        <div class="summary-sub">剩余现金 <span id="s-cash"></span></div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">累计每股分红（原 1 股口径）</div>
+        <div class="summary-value green" id="s-div-ps"></div>
+        <div class="summary-sub">全部分红均复投再买入</div>
+      </div>
+      <div class="summary-item red">
+        <div class="summary-label">总价值（市值+现金） / 总收益率</div>
+        <div class="summary-value red" id="s-total-val"></div>
+        <div class="summary-sub red" id="s-total-ret"></div>
+      </div>
+      <div class="summary-item blue">
+        <div class="summary-label">持有年限 / 年化收益率</div>
+        <div class="summary-value blue" id="s-years"></div>
+        <div class="summary-sub blue" id="s-annual"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 分红复投明细表 ======== -->
+  <div class="card" id="details-section" style="display:none;">
+    <div class="detail-header">
+      <h2>分红复投明细（按除权除息日升序）</h2>
+      <button class="col-btn" id="btn-cols" onclick="toggleColChooser(event)">⚙️ 列设置</button>
+      <div class="col-panel" id="col-panel" style="display:none;">
+        <div class="panel-title">
+          <span>勾选需要显示的列</span>
+          <span>
+            <a onclick="colsSelectAll(true)">全选</a>
+            <a onclick="colsSelectAll(false)">全不选</a>
+            <a onclick="colsReset()">默认</a>
+          </span>
+        </div>
+        <div id="col-list"></div>
+      </div>
+    </div>
+    <div style="font-size:12.5px; color:#777; margin-bottom:8px;">
+      处理顺序：① 派发现金（按派息前股数 × 每股派现）→ ② 送股 + 转增 → ③ 现金+剩余现金 合并，按除息日复权价向下取 100 整数倍再买入
+    </div>
+    <div class="tbl-wrap">
+      <table id="detail-tbl">
+        <thead>
+          <tr>
+            <th data-col="idx"   style="width:40px;">#</th>
+            <th data-col="ex_date">除权除息日</th>
+            <th data-col="per_detail">送股/转增/派息（每股）</th>
+            <th data-col="before_shares">派息前股本</th>
+            <th data-col="cash_dividend">本次现金分红</th>
+            <th data-col="bonus_shares">送转新增股本</th>
+            <th data-col="shares_after_bonus">送转后股本</th>
+            <th data-col="buyback_info">复投买入日 / 价</th>
+            <th data-col="available_cash">可用资金（现金+分红）</th>
+            <th data-col="buyback_shares">复投再买股本</th>
+            <th data-col="shares_total">复投后总股数</th>
+            <th data-col="remaining_cash">剩余现金</th>
+            <th data-col="note">备注</th>
+          </tr>
+        </thead>
+        <tbody id="detail-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+ *  列定义 & 列显示偏好
+ * ============================================================ */
+const COL_DEFS = [
+  { col: 'idx',                 label: '序号' },
+  { col: 'ex_date',             label: '除权除息日' },
+  { col: 'per_detail',          label: '送/转/派（每股标签）' },
+  { col: 'before_shares',       label: '派息前股本' },
+  { col: 'cash_dividend',       label: '本次现金分红' },
+  { col: 'bonus_shares',        label: '送转新增股本' },
+  { col: 'shares_after_bonus',  label: '送转后股本' },
+  { col: 'buyback_info',        label: '复投买入日 / 价' },
+  { col: 'available_cash',      label: '可用资金（现金+分红）' },
+  { col: 'buyback_shares',      label: '复投再买股本' },
+  { col: 'shares_total',        label: '复投后总股数' },
+  { col: 'remaining_cash',      label: '剩余现金' },
+  { col: 'note',                label: '备注' },
+];
+const COL_STORAGE_KEY = 'reinvest_backtest.col_visibility';
+function getColDefaults() {
+  const m = {};
+  COL_DEFS.forEach(d => m[d.col] = true);
+  return m;
+}
+function loadColPrefs() {
+  try {
+    const raw = localStorage.getItem(COL_STORAGE_KEY);
+    const defs = getColDefaults();
+    if (!raw) return defs;
+    const parsed = JSON.parse(raw) || {};
+    // 补齐新列（版本升级新增列自动默认打开）
+    for (const c of Object.keys(defs)) {
+      if (!(c in parsed)) parsed[c] = true;
+    }
+    // 清理已删除列
+    for (const c of Object.keys(parsed)) {
+      if (!(c in defs)) delete parsed[c];
+    }
+    return parsed;
+  } catch (e) { return getColDefaults(); }
+}
+function saveColPrefs(prefs) {
+  try { localStorage.setItem(COL_STORAGE_KEY, JSON.stringify(prefs)); }
+  catch (e) {}
+}
+function applyColVisibility(prefs) {
+  prefs = prefs || loadColPrefs();
+  const all = document.querySelectorAll('#detail-tbl th[data-col], #detail-tbl td[data-col]');
+  all.forEach(el => {
+    const c = el.getAttribute('data-col');
+    if (!c) return;
+    const on = !!prefs[c];
+    if (on) el.classList.remove('col-hidden');
+    else    el.classList.add('col-hidden');
+  });
+}
+
+/* ============================================================
+ *  列设置面板
+ * ============================================================ */
+function renderColChooserList() {
+  const list = $('col-list');
+  if (!list) return;
+  const prefs = loadColPrefs();
+  list.innerHTML = '';
+  COL_DEFS.forEach(d => {
+    const on = !!prefs[d.col];
+    const lbl = document.createElement('label');
+    lbl.innerHTML =
+      `<input type="checkbox" data-col="${d.col}" ${on?'checked':''}> <span>${d.label}</span>`;
+    lbl.querySelector('input').addEventListener('change', (e) => {
+      const c = e.target.getAttribute('data-col');
+      const now = loadColPrefs();
+      now[c] = e.target.checked;
+      saveColPrefs(now);
+      applyColVisibility(now);
+    });
+    list.appendChild(lbl);
+  });
+}
+function toggleColChooser(e) {
+  if (e) { e.stopPropagation(); }
+  const p = $('col-panel');
+  const shown = (p.style.display !== 'none');
+  p.style.display = shown ? 'none' : 'block';
+  if (!shown) renderColChooserList();
+}
+function colsSelectAll(on) {
+  const now = getColDefaults();
+  for (const k of Object.keys(now)) now[k] = !!on;
+  saveColPrefs(now);
+  renderColChooserList();
+  applyColVisibility(now);
+}
+function colsReset() {
+  const now = getColDefaults();
+  saveColPrefs(now);
+  renderColChooserList();
+  applyColVisibility(now);
+}
+
+/* ============================================================
+ *  工具函数
+ * ============================================================ */
+function fmtMoney(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  if (abs >= 1e8) return sign + '¥ ' + (abs/1e8).toFixed(4) + ' 亿';
+  if (abs >= 1e4) return sign + '¥ ' + (abs/1e4).toFixed(2) + ' 万';
+  return sign + '¥ ' + abs.toLocaleString('zh-CN',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtNum(v, digits=0) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return Number(v).toLocaleString('zh-CN',{maximumFractionDigits: digits});
+}
+function fmtPct(v) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return (v>0?'+':'') + Number(v).toFixed(2) + '%';
+}
+function $(id){return document.getElementById(id);}
+function setStatus(text, type='info') {
+  const el = $('status');
+  el.className = 'status-msg ' + (type || '');
+  el.innerHTML = text;
+}
+function showLoading(running) {
+  const btn = $('btn-run');
+  btn.disabled = !!running;
+  if (running) btn.innerHTML = '<span class="spinner"></span>回测中…';
+  else         btn.innerHTML = '开始回测';
+}
+
+/* ============================================================
+ *  清空
+ * ============================================================ */
+function clearAll() {
+  $('symbol').value = '';
+  $('buy_date').value = '';
+  $('principal').value = '';
+  $('summary-section').style.display = 'none';
+  $('details-section').style.display = 'none';
+  $('detail-body').innerHTML = '';
+  setStatus('已清空，请重新输入参数。', 'info');
+}
+
+/* ============================================================
+ *  回测主流程
+ * ============================================================ */
+async function runBacktest() {
+  const sym = $('symbol').value.trim();
+  const bd  = $('buy_date').value.trim();
+  const p   = $('principal').value.trim();
+
+  if (!sym) return setStatus('请输入股票代码','err');
+  if (!bd)  return setStatus('请选择买入日期','err');
+  if (!p || parseFloat(p) <= 0) return setStatus('请输入有效的买入本金（>0）','err');
+
+  showLoading(true);
+  setStatus('<span class="spinner"></span>正在通过 akshare 拉取日线 + 分红送股数据（首次查询约 1~5 秒，请稍候）…', 'info');
+
+  try {
+    const url = '/api/reinvest_backtest?symbol=' + encodeURIComponent(sym)
+              + '&buy_date=' + encodeURIComponent(bd)
+              + '&principal=' + encodeURIComponent(p);
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (!json.ok) {
+      setStatus('❌ ' + (json.msg || '未知错误'), 'err');
+      showLoading(false);
+      return;
+    }
+
+    renderSummary(json.summary);
+    renderDetails(json.details);
+    $('summary-section').style.display = 'block';
+    if (json.details && json.details.length > 0) {
+      $('details-section').style.display = 'block';
+    } else {
+      $('details-section').style.display = 'block';
+      $('detail-body').innerHTML =
+        '<tr><td colspan="13" class="center" style="color:#888; padding:24px 8px;">该股票在买入区间内暂无已实施的分红送股记录</td></tr>';
+    }
+    setStatus('✅ 回测完成。共处理 ' + (json.details||[]).length + ' 次分红复投。', 'ok');
+  } catch (e) {
+    setStatus('❌ 请求失败：' + e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+
+/* ============================================================
+ *  渲染汇总 & 明细
+ * ============================================================ */
+function renderSummary(s) {
+  // 证券名称 chip（标题左侧）
+  const chip = $('s-sec-chip');
+  if (s.sec_name || s.symbol) {
+    const suffix = s.sec_suffix ? ('.' + s.sec_suffix) : '';
+    chip.innerHTML = '';
+    if (s.sec_name) {
+      const n = document.createElement('span');
+      n.className = 'sec-name'; n.textContent = s.sec_name;
+      chip.appendChild(n);
+      const dot = document.createElement('span');
+      dot.textContent = '·'; dot.style.opacity = '0.55';
+      chip.appendChild(dot);
+    }
+    const c = document.createElement('span');
+    c.className = 'sec-code'; c.textContent = s.symbol + suffix;
+    chip.appendChild(c);
+    chip.style.display = 'inline-flex';
+  } else {
+    chip.style.display = 'none';
+  }
+
+  $('s-buy').textContent = s.buy_date_actual;
+  $('s-buy-sub').textContent = '（输入：' + s.buy_date + ' / 本金：' + fmtMoney(s.principal) + '）';
+
+  $('s-shares0').textContent = fmtNum(s.initial_shares) + ' 股';
+  $('s-price0').textContent = '买入价 ¥ ' + Number(s.buy_price).toLocaleString('zh-CN',{maximumFractionDigits:4});
+
+  $('s-latest-price').textContent = '¥ ' + Number(s.latest_close).toLocaleString('zh-CN',{maximumFractionDigits:4});
+  $('s-latest-date').textContent = '交易日：' + s.latest_date;
+
+  $('s-cur-shares').textContent = fmtNum(s.current_shares) + ' 股';
+  const grow = (s.initial_shares > 0 ? (s.current_shares / s.initial_shares) : 0);
+  $('s-grow').textContent = grow.toFixed(2) + 'x';
+
+  $('s-mv').textContent = fmtMoney(s.market_value);
+  $('s-cash').textContent = fmtMoney(s.remaining_cash);
+
+  $('s-div-ps').textContent = '¥ ' + Number(s.total_div_per_share).toFixed(4) + ' 元/股';
+
+  $('s-total-val').textContent = fmtMoney(s.total_value);
+  const retEl = $('s-total-ret');
+  retEl.textContent = fmtPct(s.total_return_pct) + ' 本金 → 终值';
+  retEl.style.color = (s.total_return_pct >= 0 ? '#c10000' : '#1a8c54');
+
+  $('s-years').textContent = s.hold_years.toFixed(2) + ' 年';
+  const annEl = $('s-annual');
+  annEl.textContent = '年化：' + fmtPct(s.annual_return_pct);
+  annEl.style.color = (s.annual_return_pct >= 0 ? '#0a4b8f' : '#c10000');
+}
+
+function renderDetails(list) {
+  const body = $('detail-body');
+  body.innerHTML = '';
+  if (!list || list.length === 0) return;
+  list.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    // 每股送股/派息 用标签
+    let tags = '';
+    if (r.per_share_gift > 0)
+      tags += '<span class="tag gift">送 ' + (r.per_share_gift).toFixed(4) + '</span> ';
+    if (r.per_share_transfer > 0)
+      tags += '<span class="tag trans">转 ' + (r.per_share_transfer).toFixed(4) + '</span> ';
+    if (r.per_share_dividend > 0)
+      tags += '<span class="tag div">派 ¥' + (r.per_share_dividend).toFixed(4) + '</span>';
+
+    tr.innerHTML = `
+      <td data-col="idx" class="center">${i + 1}</td>
+      <td data-col="ex_date" class="center">${r.ex_date || '-'}</td>
+      <td data-col="per_detail" class="center">${tags || '-'}</td>
+      <td data-col="before_shares">${fmtNum(r.before_shares)}</td>
+      <td data-col="cash_dividend" class="num-up">${fmtMoney(r.cash_dividend)}</td>
+      <td data-col="bonus_shares" class="num-up">${fmtNum(r.bonus_shares)}</td>
+      <td data-col="shares_after_bonus">${fmtNum(r.shares_after_bonus)}</td>
+      <td data-col="buyback_info" class="center">
+        ${r.buyback_date || '-'}<br>
+        <span style="color:#666; font-size:12px;">
+          ${r.buyback_price ? ('¥ ' + Number(r.buyback_price).toLocaleString()) : '-'}
+        </span>
+      </td>
+      <td data-col="available_cash">${r.available_cash!=null ? fmtMoney(r.available_cash) : '-'}</td>
+      <td data-col="buyback_shares" class="num-up">${fmtNum(r.buyback_shares)}</td>
+      <td data-col="shares_total" style="font-weight:700; color:#c10000;">${fmtNum(r.shares_total)}</td>
+      <td data-col="remaining_cash" style="color:#1059a6;">${fmtMoney(r.remaining_cash)}</td>
+      <td data-col="note" class="center" style="color:#888; max-width:220px; white-space: normal;">${r.note || ''}</td>
+    `;
+    body.appendChild(tr);
+  });
+  // 应用列显示偏好
+  applyColVisibility();
+}
+
+/* ============================================================
+ *  回车快捷启动 + 全局监听（点击面板外关闭）
+ * ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  ['symbol','buy_date','principal'].forEach(id => {
+    $(id).addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') runBacktest();
+    });
+  });
+  // 初始应用列偏好（首次加载没有表格，空操作；回测后明细渲染后再次应用）
+  applyColVisibility();
+  // 点击面板外关闭列设置
+  document.addEventListener('click', (e) => {
+    const panel = $('col-panel');
+    const btn = $('btn-cols');
+    if (!panel || panel.style.display === 'none') return;
+    if (panel.contains(e.target)) return;
+    if (btn && btn.contains(e.target)) return;
+    panel.style.display = 'none';
+  });
+});
+</script>
+</body>
+</html>

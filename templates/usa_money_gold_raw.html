@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{{ page_title }} · Value500 数据图表</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    background: #f7f8fa;
+    color: #222;
+    padding: 18px 22px 24px;
+    min-height: 100vh;
+  }
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    border-left: 6px solid #c9a227;
+    padding: 2px 0 2px 12px;
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    color: #666;
+    font-size: 13.5px;
+    margin-bottom: 20px;
+    padding-left: 18px;
+    line-height: 1.7;
+  }
+
+  /* ========= 信息卡：大幅增加间距/换行，避免重叠 ========= */
+  .info-bar {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .info-card {
+    flex: 1 1 220px;
+    min-width: 200px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 14px 18px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border: 1px solid #eee;
+  }
+  .info-card .label {
+    font-size: 12.5px;
+    color: #666;
+    margin-bottom: 7px;
+    line-height: 1.65;
+    white-space: normal;
+  }
+  .info-card .value {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .info-card .value .sub {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #777;
+    margin-top: 7px;
+    line-height: 1.9;
+    white-space: normal;
+  }
+  .info-card[data-kind="gold"]    { border-left: 5px solid #c9a227; }
+  .info-card[data-kind="base"]    { border-left: 5px solid #c10000; }
+  .info-card[data-kind="circ"]    { border-left: 5px solid #1565C0; }
+  .info-card[data-kind="ratio"]   { border-left: 5px solid #2E7D32; }
+  .info-card[data-kind="gold"]  .value { color: #c9a227; }
+  .info-card[data-kind="base"]  .value { color: #c10000; }
+  .info-card[data-kind="circ"]  .value { color: #1565C0; }
+  .info-card[data-kind="ratio"] .value { color: #2E7D32; }
+
+  .info-card.data-src {
+    flex-basis: 100%;
+    background: #fffbf0;
+    border-color: #ffe9a8;
+    border-left-width: 1px;
+  }
+  .info-card.data-src .value {
+    color: #6a4700;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.95;
+  }
+  .info-card.data-src .value b { color: #c10000; font-weight: 700; }
+  .info-card.data-src .value .warn {
+    color: #8a5a00;
+    font-weight: 600;
+    background: #fff6d6;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin: 0 2px;
+  }
+
+  /* ========= 右上角固定信息卡（跟随鼠标显示当前值） ========= */
+  .current-value-card {
+    position: fixed;
+    top: 120px;
+    right: 24px;
+    z-index: 9999;
+    background: #fffdf8;
+    border: 2px solid #c9a227;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 6px 24px rgba(201,162,39,0.22), 0 2px 8px rgba(0,0,0,0.08);
+    min-width: 290px;
+    backdrop-filter: blur(8px);
+  }
+  .current-value-card .cv-title {
+    font-size: 12px; color: #888; margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px dashed #eee; font-weight: 600;
+  }
+  .current-value-card .cv-empty { font-size: 12px; color: #aaa; text-align: center; padding: 10px 0; }
+  .current-value-card .cv-date  { font-size: 14px; font-weight: 700; color: #222; margin-bottom: 10px; }
+  .current-value-card .cv-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; font-size: 13px; border-bottom: 1px dotted #f0f0f0;
+  }
+  .current-value-card .cv-row:last-child { border-bottom: none; }
+  .current-value-card .cv-row .cv-label { color: #555; }
+  .current-value-card .cv-row .cv-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-row .cv-val.gold  { color: #c9a227; }
+  .current-value-card .cv-row .cv-val.base  { color: #c10000; }
+  .current-value-card .cv-row .cv-val.circ  { color: #1565C0; }
+
+  /* 给固定面板留出右侧空间 */
+  #chart-wrap {
+    background: #fff;
+    padding: 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+    margin-right: 310px;
+  }
+  #chart { width: 100%; height: 660px; }
+
+  /* 隐藏 Plotly 默认 hover 气泡（遮挡走势+靠太近），数值通过右上角固定卡片显示 */
+  .hoverlayer { display: none !important; }
+  .nsewdrag   { cursor: crosshair !important; }
+
+  .loading { text-align: center; padding: 70px 0; color: #888; font-size: 14px; }
+  .empty-tip {
+    text-align: center; padding: 60px 30px; background: #fffbe6;
+    border: 1px dashed #ffd166; border-radius: 8px;
+    color: #5a3e00; font-size: 14px; line-height: 1.95;
+  }
+  .empty-tip h3 { color: #c10000; margin-bottom: 12px; }
+  .empty-tip button {
+    margin-top: 16px; padding: 9px 26px; background: #c10000; color: #fff;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 700;
+  }
+  .todo-note {
+    background: #f4f9ff;
+    border-left: 5px solid #6aa6e6;
+    padding: 16px 20px;
+    border-radius: 0 8px 8px 0;
+    color: #0d3b74;
+    font-size: 13.5px;
+    line-height: 1.95;
+    margin-top: 12px;
+  }
+  .todo-note .tag {
+    display: inline-block;
+    padding: 2px 9px;
+    margin-right: 8px;
+    border-radius: 3px;
+    background: #c9a227;
+    color: #fff;
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.5px;
+  }
+  .todo-note .event-tag {
+    display: inline-block;
+    padding: 0 6px;
+    margin: 0 3px;
+    border-radius: 3px;
+    font-weight: 700;
+    font-size: 11.5px;
+    background: #e3f2fd;
+    color: #0d47a1;
+  }
+  .meta-bar {
+    margin-top: 14px; font-size: 12px; color: #999; text-align: right;
+  }
+  code {
+    background: #f0f0f0; padding: 1px 6px; border-radius: 3px;
+    font-family: Consolas, Menlo, monospace; color: #c10000;
+  }
+
+  /* 窄屏：固定面板放到静态位置，图表右边距清零 */
+  @media (max-width: 720px) {
+    #chart-wrap { margin-right: 0; }
+    .current-value-card {
+      position: static; margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">{{ page_title }}</h1>
+<div class="page-subtitle">{{ page_subtitle }}</div>
+
+<div class="info-bar" id="info-bar">
+  <div class="info-card" data-kind="gold">
+    <div class="label">美国官方黄金储备（最新）</div>
+    <div class="value" id="card-gold"><span>—</span>
+      <span class="sub">历史最低：— &nbsp;·&nbsp; 历史最高：—<br/>1 吨 ≈ 32,150.7 金衡盎司 · Fort Knox 诺克斯堡</span>
+    </div>
+  </div>
+  <div class="info-card" data-kind="base">
+    <div class="label">美国基础货币 Monetary Base（最新）</div>
+    <div class="value" id="card-base"><span>—</span>
+      <span class="sub">历史最低：— &nbsp;·&nbsp; 历史最高：—<br/>= 流通中现金 + 银行准备金（FRED BOGMBASE）</span>
+    </div>
+  </div>
+  <div class="info-card" data-kind="circ">
+    <div class="label">循环信贷 Currency in Circulation（最新）</div>
+    <div class="value" id="card-circ"><span>—</span>
+      <span class="sub">历史最低：— &nbsp;·&nbsp; 历史最高：—<br/>公众持有的现金总量（不含银行金库）（FRED CURRCIRC）</span>
+    </div>
+  </div>
+  <div class="info-card" data-kind="ratio">
+    <div class="label">"纸黄金"覆盖率<br/>（流通中现金 ÷ 黄金储备市值）</div>
+    <div class="value" id="card-ratio"><span>—</span>
+      <span class="sub">（假设金价取最新 ~2350 $/oz 估算）<br/>比值越大 → 美元信用支撑越"稀薄"</span>
+    </div>
+  </div>
+</div>
+
+<!-- 右上角：鼠标跟随数据卡片（固定位置，永远不挡鼠标十字线） —— 初始隐藏，鼠标移入图表才显示 -->
+<div class="current-value-card" id="cv-card" style="display:none;">
+  <div class="cv-title">📍 当前光标位置数据（跟随鼠标移动）</div>
+  <div class="cv-empty" id="cv-empty">将鼠标移动到图表上查看精确值</div>
+  <div id="cv-body" style="display:none;">
+    <div class="cv-date" id="cv-date">—</div>
+    <div class="cv-row">
+      <span class="cv-label">🥇 黄金市值：</span>
+      <span class="cv-val gold" id="cv-gold">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">🥇 储备吨数：</span>
+      <span class="cv-val gold" id="cv-ton">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">🥇 金价$/oz：</span>
+      <span class="cv-val gold" id="cv-price">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">🔴 基础货币：</span>
+      <span class="cv-val base" id="cv-base">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">🔵 循环信贷：</span>
+      <span class="cv-val circ" id="cv-circ">—</span>
+    </div>
+  </div>
+</div>
+
+<div id="chart-wrap">
+  <div class="y-controls-bar" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;padding:6px 12px;background:#f7f9fc;border:1px solid #e2e8f0;border-radius:8px;">
+    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;color:#243447;font-size:13.5px;">
+      <input type="checkbox" id="y-follow-x" checked style="width:16px;height:16px;cursor:pointer;"/>
+      🎯 Y 轴自动跟随 X 范围（推荐 · 放大时间后 Y 自动收缩，三条线不再混叠）
+    </label>
+    <span style="color:#c0c8d3;font-size:12px;">|</span>
+    <button id="btn-y-zoom-in"  class="y-btn" title="缩小 Y 轴范围（让线更分散）">➕ 放大 Y</button>
+    <button id="btn-y-zoom-out" class="y-btn" title="扩大 Y 轴范围">➖ 缩小 Y</button>
+    <button id="btn-y-fit"       class="y-btn btn-primary" title="按当前 X 可见范围，自动计算 Y 上下限">📐 自动适配 Y</button>
+    <button id="btn-y-reset"     class="y-btn" title="重置 Y 轴回到全量 autorange">↺ 重置 Y</button>
+    <span id="y-status-text" style="margin-left:auto;font-size:12px;color:#64748B;">💡 Y 自适应：<b style="color:#0ea5e9;">开启</b> · 用鼠标在图中拖矩形可同时缩放 XY（或点顶部按钮）</span>
+  </div>
+  <div id="chart"><div class="loading">正在从后端加载美国基础货币 & 黄金储备历史数据… {{ DATA_API }}</div></div>
+</div>
+
+<style>
+.y-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.y-btn:hover { background:#f0f7ff; border-color:#3b82f6; color:#1d4ed8; }
+.y-btn.btn-primary { background:#2563eb; border-color:#1d4ed8; color:#fff; }
+.y-btn.btn-primary:hover { background:#1d4ed8; color:#fff; }
+</style>
+
+<!-- 图表下方：数据区间 + 整体法口径（原在 Plotly 标题里，移到这里避免被裁切 + 和 legend 混叠） -->
+<div class="chart-meta-info">
+  <div class="cmi-row">
+    <span class="cmi-label range">📅 数据区间：</span>
+    <span id="cmi-range" style="color:#555;font-weight:600;">加载中…</span>
+  </div>
+  <div class="cmi-row">
+    <span class="cmi-label spec">📐 坐标口径：</span>
+    <span>
+      <code>主坐标 Y = 十亿美元 USD Billion（黄金储备市值 + 基础货币 + 流通现金，三线统一单位，可直接对比）</code>
+      <br/>
+      <code>副坐标 Y2 = 黄金储备吨数 Metric tons（默认隐藏，图例单击切换显示）</code>
+    </span>
+  </div>
+</div>
+
+<div class="info-card data-src" style="margin-bottom: 16px;">
+  <div class="label">📡 数据源说明</div>
+  <div class="value">
+    <b>数据来源（增强型高密度插值 · 对齐参考图口径）：</b>{{ page_data_source }}<br/>
+    <span class="warn">黄金储备计算口径（与参考图完全一致）：</span>
+    <b>黄金储备 = 吨数 × 32150.7 盎司/吨 × 当日金价(USD/oz) ÷ 10⁹ = 十亿美元市价估值</b>（不再是"吨数"这一平线指标）。<br/>
+    金价数据：1918-1933 固定 $20.67/oz（金本位法定值）· 1934-1967 固定 $35/oz（布雷顿森林）· 1968+ 本地 precious_metals 每日伦敦金定盘价（周末/节假日向前 FFill 保持连续）。<br/>
+    <b>基础货币 / 循环信贷：</b>单位 = 十亿美元（Billion USD），节点来自 Fed / Treasury 公开历史数据；2008 QE 期 + 2020 QE 期按季度/月度节点捕捉爆发。<br/>
+    <b>时间频率：</b>日度连续数据（{{ payload.count if payload and payload.count else '约 39600' }} 条，每日记录，周末及缺失日向前填充，1918 至今无断点）。<br/>
+    接口：<code>{{ DATA_API }}</code>（缓存过期自动补采，最新至当日工作日）
+  </div>
+</div>
+
+<div class="meta-bar">
+  页面渲染：{{ render_time }} &nbsp;·&nbsp; 后端数据接口：{{ DATA_API }} &nbsp;·&nbsp; Value500 投资导航
+</div>
+
+<script>
+/* =========================================================
+ * 真实数据：fetch {{ DATA_API }}
+ * 双 Y 轴绘制：左轴黄金储备(吨)，右轴基础货币+循环信贷(十亿美元)
+ *   · 右上角固定卡片：plotly_hover 事件同步更新
+ *   · spike 增强：spikemode='toaxis+marker' → 坐标交点直接显示当前值
+ * ========================================================= */
+const DATA_API = "{{ DATA_API }}";
+const GOLD_PRICE_PER_OZ_EST = 2350;
+const TONS_TO_OZ = 32150.7466;
+
+const PLOT_CFG = {
+  responsive: true, displaylogo: false, locale: 'zh-CN',
+  modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+};
+
+const fmt = (v, digits) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(digits);
+function fmt1000(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  v = Number(v);
+  if (v >= 10000) return (v/10000).toFixed(2) + " 万";
+  if (v >= 1000)  return (v/1000).toFixed(2)  + " K";
+  return v.toFixed(0);
+}
+
+/* ---------- 注意：原生 spike 双轴场景下标签与光标位置错位 → 彻底禁用，改用自定义 shapes+annotations ---------- */
+const SPIKE_BASE = {
+  showspikes: false,
+  ticks: 'outside',
+  showline: true,
+  ticklabelposition: 'outside',
+  showticklabels: true,
+};
+
+/* ---------- 数据缓存 ---------- */
+const DATA_BY_DATE = {};
+const DATE_LIST = [];
+/* 静态 annotations，hover 时追加 Y 轴数值标签不破坏它们 */
+let STATIC_ANNOTATIONS = [];
+/* 静态 shapes —— crosshair 动态合并 */
+let STATIC_SHAPES = [];
+let LAST_CURSOR = null;
+/* ⭐ 死循环保护：drawManualCrosshair 内部 Plotly.relayout 触发 plotly_relayout 事件 → 跳过避免递归 */
+let _SUPPRESS_LAYOUT_EVENTS = false;
+
+/* ---------- Y 轴缩放控制状态 ---------- */
+let CFG_Y_FOLLOW_X = true;        // 开关：Y轴自动跟随X范围（用户在UI切换）
+let _LAST_Y_USER_EXPLICIT = false;  // 上一次 relayout 是否是用户"显式设置Y轴范围"（矩形缩放时），避免覆盖用户手动框选的Y区域
+
+/* ---------- 像素 ↔ paper ↔ 数据坐标 换算 ---------- */
+function getLayoutDims(gd) {
+  const fl = gd._fullLayout || {};
+  const w  = gd.clientWidth  || fl.width  || 1200;
+  const h  = gd.clientHeight || fl.height || 900;
+  const ml = (fl.margin && fl.margin.l != null) ? fl.margin.l : 90;
+  const mr = (fl.margin && fl.margin.r != null) ? fl.margin.r : 90;
+  const mt = (fl.margin && fl.margin.t != null) ? fl.margin.t : 260;
+  const mb = (fl.margin && fl.margin.b != null) ? fl.margin.b : 100;
+  return { w, h, ml, mr, mt, mb, plotW: Math.max(1, w - ml - mr), plotH: Math.max(1, h - mt - mb) };
+}
+function pixelToPaper(gd, ox, oy) {
+  const D = getLayoutDims(gd);
+  const px = ox - D.ml;
+  const py = oy - D.mt;
+  return {
+    paperX: px / D.plotW, paperY: 1 - (py / D.plotH),
+    inPlot: px >= 0 && px <= D.plotW && py >= 0 && py <= D.plotH,
+  };
+}
+function paperYToAxisValue(gd, paperY, axisName) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl[axisName]; if (!ax || !ax.domain || !ax.range) return null;
+  const [d0, d1] = ax.domain;
+  const [r0, r1] = ax.range;
+  if (d1 === d0) return null;
+  return r0 + ((paperY - d0) / (d1 - d0)) * (r1 - r0);
+}
+function paperXToXData(gd, paperX) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl.xaxis; if (!ax || !ax.range) return null;
+  // ⭐ Plotly 日期轴 range 可能是 数字（ms）或 字符串（'2024-01-05'），统一转 ms 避免 NaN
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isNaN(v) ? null : v;
+    if (typeof v === 'string') { const t = new Date(v).getTime(); return isNaN(t) ? null : t; }
+    return null;
+  };
+  const r0 = toMs(ax.range[0]);
+  const r1 = toMs(ax.range[1]);
+  if (r0 == null || r1 == null || r1 === r0) return null;
+  return r0 + paperX * (r1 - r0);
+}
+function xDataToDateStr(ms) {
+  if (ms == null || isNaN(ms)) return null;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function buildDateIndex(payload) {
+  for (const k in DATA_BY_DATE) delete DATA_BY_DATE[k];
+  DATE_LIST.length = 0;
+  if (!payload || !payload.date) return;
+  for (let i = 0; i < payload.date.length; i++) {
+    const d = payload.date[i];
+    if (!d) continue;
+    DATE_LIST.push(d);
+    DATA_BY_DATE[d] = {
+      gold_usdb: (payload.gold_reserve_usd_bn || [])[i],   // 黄金储备市值 十亿美元（主 Y 轴，与参考图一致）
+      gold_ton:  (payload.gold_reserve_tons   || [])[i],   // 黄金储备吨数（副 Y 轴，默认隐藏）
+      gold_price:(payload.gold_price_usd_oz   || [])[i],   // 当月金价 美元/盎司
+      base:      (payload.monetary_base_bn    || [])[i],   // 基础货币 十亿美元
+      circ:      (payload.currency_circ_bn    || [])[i],   // 循环信贷 十亿美元
+    };
+  }
+}
+function findNearestDate(target) {
+  if (!target || !DATE_LIST.length) return null;
+  let lo = 0, hi = DATE_LIST.length - 1;
+  const t = new Date(target).getTime();
+  if (isNaN(t)) return DATE_LIST[DATE_LIST.length - 1];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const mv = new Date(DATE_LIST[mid]).getTime();
+    if (mv === t) return DATE_LIST[mid];
+    else if (mv < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  let best = null, bestDiff = Infinity;
+  for (const i of [lo, hi]) {
+    if (i < 0 || i >= DATE_LIST.length) continue;
+    const d = Math.abs(new Date(DATE_LIST[i]).getTime() - t);
+    if (d < bestDiff) { bestDiff = d; best = DATE_LIST[i]; }
+  }
+  return best;
+}
+
+/* ---------- plotly_hover → 右上角固定卡片更新 + Y 轴交点数值标签 ---------- */
+function updateCurrentCard(dateStr) {
+  if (!dateStr) return;
+  let key = String(dateStr).split(' ')[0];
+  let d = DATA_BY_DATE[key];
+  if (!d) {
+    const near = findNearestDate(key);
+    if (!near) return;
+    key = near;
+    d = DATA_BY_DATE[near];
+  }
+  document.getElementById('cv-empty').style.display = 'none';
+  document.getElementById('cv-body').style.display  = 'block';
+  document.getElementById('cv-date').textContent = key;
+  document.getElementById('cv-gold').textContent  = `$${fmt(d.gold_usdb, 1)} B (十亿美元市值)`;
+  document.getElementById('cv-ton').textContent   = `${fmt(d.gold_ton, 0)} 吨`;
+  document.getElementById('cv-price').textContent = `$${fmt(d.gold_price,2)}/oz`;
+  document.getElementById('cv-base').textContent  = `$${fmt(d.base, 0)} B`;
+  document.getElementById('cv-circ').textContent  = `$${fmt(d.circ, 0)} B`;
+  return d;
+}
+
+/* ========================================================================
+ * Y 轴自动跟随 X 范围（解决放大时间区间后三条线挤在一起看不清的问题）
+ *   - 触发时机：拖动底部 rangeslider / 点 rangeselector 按钮 / 程序 autorange
+ *   - 不触发：用户在图中拖矩形缩放（因为矩形已经设置了 Y 区域，尊重用户选择）
+ * ======================================================================== */
+function autoFitYAxisToVisibleX(force=false) {
+  const gd = document.getElementById('chart');
+  if (!gd || !DATE_LIST.length || !DATA_BY_DATE) return;
+  if (!force && _LAST_Y_USER_EXPLICIT) return;   // 用户刚才框选了 Y，不覆盖
+  if (!force && !CFG_Y_FOLLOW_X) return;         // 开关关闭
+
+  const fl = gd._fullLayout; if (!fl) return;
+  const xa = fl.xaxis; if (!xa) return;
+
+  // ---------- 1. 取当前 X 可见窗 起止日期（兼容字符串 / 数字 ms） ----------
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isNaN(v) ? null : v;
+    if (typeof v === 'string') { const t = new Date(v).getTime(); return isNaN(t) ? null : t; }
+    return null;
+  };
+  let x0Ms, x1Ms;
+  if (xa.range && xa.range.length === 2) {
+    x0Ms = toMs(xa.range[0]);
+    x1Ms = toMs(xa.range[1]);
+  }
+  // 没 range 则用全量日期
+  if (x0Ms == null || x1Ms == null) {
+    x0Ms = new Date(DATE_LIST[0]).getTime();
+    x1Ms = new Date(DATE_LIST[DATE_LIST.length-1]).getTime();
+  }
+  if (x1Ms < x0Ms) { const t=x0Ms; x0Ms=x1Ms; x1Ms=t; }
+
+  // ---------- 2. 扫描落在窗口内的数据点，计算主坐标 Y1（USD B）min/max ----------
+  let y1Min = +Infinity, y1Max = -Infinity;
+  let y2Min = +Infinity, y2Max = -Infinity;
+  let cnt = 0;
+  for (const dStr of DATE_LIST) {
+    const ms = new Date(dStr).getTime();
+    if (ms < x0Ms || ms > x1Ms) continue;
+    const d = DATA_BY_DATE[dStr];
+    if (!d) continue;
+    const a = d.gold_usdb; if (a!=null && !isNaN(a)) { y1Min = Math.min(y1Min, a); y1Max = Math.max(y1Max, a); cnt++; }
+    const b = d.base;     if (b!=null && !isNaN(b)) { y1Min = Math.min(y1Min, b); y1Max = Math.max(y1Max, b); cnt++; }
+    const c = d.circ;     if (c!=null && !isNaN(c)) { y1Min = Math.min(y1Min, c); y1Max = Math.max(y1Max, c); cnt++; }
+    const t = d.gold_ton; if (t!=null && !isNaN(t)) { y2Min = Math.min(y2Min, t); y2Max = Math.max(y2Max, t); }
+  }
+  if (!cnt || y1Min === +Infinity) return;
+
+  // ---------- 3. padding 12% 上下留白，让线不贴边 ----------
+  let span = y1Max - y1Min;
+  if (span < 1e-9) span = Math.max(1, y1Max * 0.2);
+  const pad = span * 0.12;
+  const y1Lo = Math.max(0, y1Min - pad);   // 货币/黄金 不为负，下限卡 0
+  const y1Hi = y1Max + pad;
+
+  const update = {};
+  update['yaxis.range']    = [y1Lo, y1Hi];
+  update['yaxis.autorange']= false;
+
+  // Y2（吨线显式时，也跟随缩放到对应吨窗口）
+  const tonTraceVisible = (gd._fullData && gd._fullData[1])
+    ? (gd._fullData[1].visible === true)
+    : false;
+  if (tonTraceVisible && y2Min !== +Infinity) {
+    const s2 = Math.max(1, y2Max - y2Min) * 0.1;
+    update['yaxis2.range']   = [y2Min - s2, y2Max + s2];
+    update['yaxis2.autorange'] = false;
+  }
+
+  // ---------- 4. 上锁 → relayout（不触发 plotly_relayout 递归） ----------
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, update).then(() => {
+    _SUPPRESS_LAYOUT_EVENTS = false;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+
+  // 状态文字回显
+  const st = document.getElementById('y-status-text');
+  if (st) {
+    const x0 = new Date(x0Ms).toISOString().slice(0,7);
+    const x1 = new Date(x1Ms).toISOString().slice(0,7);
+    st.innerHTML = `💡 范围 <b>${x0}~${x1}</b> · 主 Y 自动适配到 <b>$${fmt(y1Lo,0)}</b> ~ <b>$${fmt(y1Hi,0)} B</b>（含数据点 ${cnt/3|0} 个）`;
+  }
+}
+
+/* 手动 Y 轴 放大 / 缩小 / 重置 */
+function manualYZoom(direction) {  // direction: +1 (zoom in → 缩小范围 让值更大), -1 (zoom out → 扩大范围)
+  const gd = document.getElementById('chart'); if (!gd) return;
+  const fl = gd._fullLayout; if (!fl || !fl.yaxis || !fl.yaxis.range) return;
+  const [a, b] = fl.yaxis.range;
+  if (a == null || b == null || isNaN(a) || isNaN(b)) return;
+  const span = b - a;
+  // 放大 Y：从当前 range 中心向两侧缩小 20% 的 span → 相对 Y 轴刻度变"更稀疏"等价于线条被放大
+  const center = (a + b) / 2;
+  const factor = direction > 0 ? 0.8 : 1.25;
+  let newLo = center - span * factor / 2;
+  let newHi = center + span * factor / 2;
+  if (newLo < 0) { newHi -= newLo; newLo = 0; }
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { 'yaxis.range': [newLo, newHi], 'yaxis.autorange': false })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+}
+function resetYAxisToFull() {
+  const gd = document.getElementById('chart'); if (!gd) return;
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { 'yaxis.autorange': true, 'yaxis2.autorange': true, 'yaxis.range': null, 'yaxis2.range': null })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+  const st = document.getElementById('y-status-text');
+  if (st) st.innerHTML = '💡 Y 轴已重置（全量 autorange），重新拖动 rangeslider 即会自动适配';
+}
+
+/**
+ * 自定义十字光标（统一单 Y 主坐标 = 十亿美元 + 可选副坐标 y2 = 吨）
+ *   - 竖线：paper 全高
+ *   - 横线 Y（主）：十亿美元 单值（所有 3 条主线共享单位）
+ *   - 横线 Y2（副，吨线显示时）：吨数
+ *   - 标签：左 = 主坐标值(十亿美元) / 右 = 副坐标值(吨)
+ *   - 右上角卡片：5 个指标（黄金市值/吨/金价 + MB/CC）
+ */
+function drawManualCrosshair(ox, oy) {
+  const gd = document.getElementById('chart');
+  if (!gd || !gd._fullLayout) return;
+  const { paperX, paperY, inPlot } = pixelToPaper(gd, ox, oy);
+  if (!inPlot) { clearManualCrosshair(); return; }
+
+  const vMain  = paperYToAxisValue(gd, paperY, 'yaxis');   // 主 Y：十亿美元（黄金USD/MB/CC共享）
+  const vTon   = paperYToAxisValue(gd, paperY, 'yaxis2');  // 副 Y：吨（吨线隐藏时也能出值）
+  const xMs    = paperXToXData(gd, paperX);
+  const xStr   = xDataToDateStr(xMs);
+
+  const crossShapes = [];
+  // 竖线（paper 全高）
+  crossShapes.push({
+    type: 'line', xref: 'paper', yref: 'paper',
+    x0: paperX, x1: paperX, y0: 0, y1: 1,
+    line: { color: '#555', width: 1.0, dash: 'dash' }, layer: 'above',
+  });
+  // 主坐标横线（十亿美元）
+  if (vMain != null && !isNaN(vMain)) {
+    crossShapes.push({
+      type: 'line', xref: 'paper', yref: 'y',
+      x0: 0, x1: 1, y0: vMain, y1: vMain,
+      line: { color: '#111', width: 1.0, dash: 'dash' }, layer: 'above',
+    });
+  }
+  // 副坐标横线（吨数）
+  if (vTon != null && !isNaN(vTon)) {
+    crossShapes.push({
+      type: 'line', xref: 'paper', yref: 'y2',
+      x0: 0, x1: 1, y0: vTon, y1: vTon,
+      line: { color: '#b58900', width: 0.8, dash: 'dot' }, layer: 'above',
+    });
+  }
+
+  const crossAnnots = [];
+  // 左：主坐标标签（十亿美元）
+  if (vMain != null && !isNaN(vMain)) {
+    crossAnnots.push({
+      x: 0.005, xref: 'paper', xanchor: 'left',
+      y: Number(vMain), yref: 'y', yanchor: 'middle',
+      text: `<b>$${fmt(vMain, 0)} B</b>`,
+      font: { color: '#fff', size: 12, family: 'Consolas, Menlo, monospace' },
+      bgcolor: '#212121', opacity: 0.96, borderpad: 3, showarrow: false,
+    });
+  }
+  // 右：副坐标吨数标签（金色）
+  if (vTon != null && !isNaN(vTon)) {
+    crossAnnots.push({
+      x: 0.995, xref: 'paper', xanchor: 'right',
+      y: Number(vTon), yref: 'y2', yanchor: 'middle',
+      text: `<b>${fmt(vTon, 0)} 吨</b>`,
+      font: { color: '#fff', size: 11.5, family: 'Consolas, Menlo, monospace' },
+      bgcolor: '#c9a227', opacity: 0.93, borderpad: 3, showarrow: false,
+    });
+  }
+
+  // 右上角卡片：按日期真实数据查值（5 个指标）
+  if (xStr) {
+    const near = findNearestDate(xStr);
+    if (near && DATA_BY_DATE[near]) {
+      const d = DATA_BY_DATE[near];
+      document.getElementById('cv-empty').style.display = 'none';
+      document.getElementById('cv-body').style.display  = 'block';
+      document.getElementById('cv-date').textContent = near;
+      document.getElementById('cv-gold').textContent  = `$${fmt(d.gold_usdb, 1)} B`;
+      document.getElementById('cv-ton').textContent   = `${fmt(d.gold_ton, 0)} 吨`;
+      document.getElementById('cv-price').textContent = `$${fmt(d.gold_price,2)}/oz`;
+      document.getElementById('cv-base').textContent  = `$${fmt(d.base, 0)} B`;
+      document.getElementById('cv-circ').textContent  = `$${fmt(d.circ, 0)} B`;
+    }
+  }
+
+  /* ⭐ 上锁：防止 Plotly.relayout 触发 plotly_relayout → 递归死锁 */
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, {
+    shapes: STATIC_SHAPES.concat(crossShapes),
+    annotations: STATIC_ANNOTATIONS.concat(crossAnnots),
+  }).then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+}
+function clearManualCrosshair() {
+  const gd = document.getElementById('chart');
+  if (!gd) return;
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { shapes: STATIC_SHAPES, annotations: STATIC_ANNOTATIONS })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+  LAST_CURSOR = null;
+}
+
+/* ---------- 布局：统一单 Y 主坐标 = 十亿美元（三条线共享单位），副坐标 y2 = 吨数 ---------- */
+function buildLayout(fromDate, toDate) {
+  const years = fromDate && toDate
+    ? Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 31536000000))
+    : 20;
+  const btns = [
+    { count: 10, label: '近10年', step: 'year', stepmode: 'backward' },
+    { count: 20, label: '近20年', step: 'year', stepmode: 'backward' },
+    { count: 55, label: '1971至今(后布雷顿)', step: 'year', stepmode: 'todate' },
+    { count: 108, label: '1918至今(全量)', step: 'year', stepmode: 'todate' },
+    { label: '全图', step: 'all' },
+  ];
+  return {
+    title: {
+      text: [
+        `<b style="font-size:18px;">美国基础货币发行量 & 黄金储备 · 历史走势</b>`,
+      ].join('<br>'),
+      x: 0.0, xanchor: 'left', y: 1, yanchor: 'top',
+      font: { size: 18, family: 'Microsoft YaHei, PingFang SC', color: '#222' },
+      pad: { t: 8, b: 8, l: 4, r: 0 },
+    },
+    xaxis: {
+      type: 'date', autorange: true, showgrid: true, gridcolor: '#eee',
+      rangeslider: { visible: true, thickness: 0.06 },
+      rangeselector: { buttons: btns, bgcolor: '#fafafa', borderwidth: 1, bordercolor: '#ddd' },
+      ...SPIKE_BASE, spikecolor: '#555',
+    },
+    yaxis: {
+      title: { text: '十亿美元 / Billion USD', standoff: 14, font: { color: '#212121', size: 13 } },
+      showgrid: true, gridcolor: '#eef2f6', zeroline: false,
+      tickfont: { color: '#212121', size: 11.5 },
+      ...SPIKE_BASE, spikecolor: '#212121',
+    },
+    yaxis2: {
+      title: { text: '黄金储备吨数 / Metric tons（图例单击切换）', standoff: 10, font: { color: '#c9a227', size: 12.5 } },
+      overlaying: 'y', side: 'right',
+      showgrid: false, zeroline: false,
+      tickfont: { color: '#c9a227', size: 11 },
+      visible: true,  // 副坐标显示刻度（即使吨线隐藏也显示完整轴信息）
+      ...SPIKE_BASE, spikecolor: '#c9a227',
+    },
+    hovermode: 'x unified', spikedistance: -1,
+    dragmode: 'zoom',  // 🎯 启用矩形框缩放：在图中按住鼠标拖动画矩形 → XY 同时缩放到框选区（解决用户"纵坐标不能放大"）
+    legend: {
+      orientation: 'h',
+      y: 1.42,
+      x: 0.0,
+      xanchor: 'left',
+      bgcolor: 'rgba(255,255,255,0)',
+      borderwidth: 0,
+      font: { size: 12.5 },
+      itemclick: 'toggle',
+      itemdoubleclick: 'toggleothers',
+    },
+    margin: { t: 250, r: 80, b: 90, l: 90 },
+    paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
+    shapes: [],
+    annotations: [],
+    hoverlabel: {
+      bgcolor: 'rgba(0,0,0,0)',
+      bordercolor: 'rgba(0,0,0,0)',
+      font: { color: 'rgba(0,0,0,0)', size: 1 },
+      namelength: -1,
+    },
+  };
+}
+
+/* ---------- 绘制主函数 ---------- */
+function drawChart(payload) {
+  const chartEl = document.getElementById('chart');
+  if (!payload || !payload.ok || !payload.date || !payload.date.length) {
+    chartEl.innerHTML = `
+      <div class="empty-tip">
+        <h3>📭 暂无美国货币/黄金储备数据</h3>
+        兜底样例数据加载失败，请检查后端日志，或手动刷新重试。
+        <button id="btn-empty-reload">↺ 重新加载本页</button>
+      </div>`;
+    document.getElementById('btn-empty-reload').onclick = () => window.location.reload();
+    fillInfoCards(null);
+    return;
+  }
+
+  // ① 建日期索引
+  buildDateIndex(payload);
+  // ② 填信息卡
+  fillInfoCards(payload);
+
+  const xs        = payload.date;
+  const gold_usdb = payload.gold_reserve_usd_bn;   // 黄金储备 十亿美元市值（主图，实线 - 与参考图一致）
+  const gold_ton  = payload.gold_reserve_tons;     // 黄金储备 吨数（副图，默认隐藏 - legendonly）
+  const base      = payload.monetary_base_bn;      // 基础货币 十亿美元（点线 - dotted）
+  const circ      = payload.currency_circ_bn;      // 循环信贷 十亿美元（虚线 - dashed）
+
+  const traces = [];
+  // ---- Trace 1: 黄金储备市值（十亿美元）—— 实线 深色，主Y轴，参考图的"黄金储备"实线 ----
+  traces.push({
+    x: xs, y: gold_usdb, mode: 'lines', type: 'scattergl',
+    name: '黄金储备（十亿美元 市价估值）= 吨×金价÷10⁹',
+    line: { color: '#2d1b00', width: 2.4, shape: 'linear' },  // 深棕黑（参考图深实线）
+    hovertemplate: '<b>黄金储备市值</b><br>%{x}<br>= <b>$%{y:,.1f} B</b><extra></extra>',
+  });
+  // ---- Trace 2: 黄金储备吨数（副Y轴，默认隐藏 legendonly）—— 用户想看"平线"为什么没变时切出查看 ----
+  traces.push({
+    x: xs, y: gold_ton, mode: 'lines', type: 'scattergl',
+    name: '黄金储备（吨 Metric tons）—— 副坐标 y2（默认隐藏）',
+    yaxis: 'y2',
+    visible: 'legendonly',
+    line: { color: '#c9a227', width: 1.8, shape: 'linear', dash: 'solid' },
+    hovertemplate: '<b>黄金储备吨数</b><br>%{x}<br>= <b>%{y:,.0f} 吨</b><extra></extra>',
+  });
+  // ---- Trace 3: 基础货币 Monetary Base（十亿美元）—— 点线 dotted ----
+  traces.push({
+    x: xs, y: base, mode: 'lines', type: 'scattergl',
+    name: '基础货币 Monetary Base（十亿美元 · 点线）',
+    line: { color: '#c10000', width: 2.0, shape: 'linear', dash: 'dot' },
+    hovertemplate: '<b>基础货币</b><br>%{x}<br>= <b>$%{y:,.0f} B</b><extra></extra>',
+  });
+  // ---- Trace 4: 循环信贷 Currency in Circulation（十亿美元）—— 虚线 dashed ----
+  traces.push({
+    x: xs, y: circ, mode: 'lines', type: 'scattergl',
+    name: '循环信贷 Currency in Circ（十亿美元 · 虚线）',
+    line: { color: '#1565C0', width: 2.0, shape: 'linear', dash: 'dash' },
+    hovertemplate: '<b>循环信贷</b><br>%{x}<br>= <b>$%{y:,.0f} B</b><extra></extra>',
+  });
+
+  const layout = buildLayout(xs[0], xs[xs.length-1]);
+
+  // ===== 关键历史事件竖线 + 注释 =====
+  const EVENTS = [
+    { date: '1971-08-15', color: '#6A1B9A', label: '1971.8<br>布雷顿森林解体<br>美元与黄金脱钩' },
+    { date: '2008-09-01', color: '#c10000', label: '2008.9<br>次贷危机 QE1<br>基础货币爆发' },
+    { date: '2020-03-15', color: '#E65100', label: '2020.3<br>新冠 QE4<br>无限量宽' },
+    { date: '2022-03-01', color: '#1565C0', label: '2022.3<br>加息+QT缩表<br>抗通胀' },
+  ];
+  EVENTS.forEach((ev, idx) => {
+    layout.shapes.push({
+      type: 'line', x0: ev.date, x1: ev.date, xref: 'x',
+      y0: 0, y1: 1, yref: 'paper',
+      line: { color: ev.color, width: 1.2, dash: 'dot' },
+      opacity: 0.45,
+    });
+    layout.annotations.push({
+      x: ev.date, y: 1 - idx*0.07, yref: 'paper',
+      xanchor: 'left', yanchor: 'top',
+      ax: 24, ay: -8,
+      bgcolor: 'rgba(255,255,255,0.88)',
+      bordercolor: ev.color, borderwidth: 1, borderpad: 3,
+      font: { color: ev.color, size: 11, family: 'Microsoft YaHei', weight: 600 },
+      showarrow: true, arrowhead: 2, arrowcolor: ev.color, arrowsize: 1.1,
+      text: ev.label,
+      align: 'left',
+      opacity: 0.45,
+    });
+  });
+
+  /* 保存静态 annotations + shapes，hover 时只追加 crosshair 动态元素 */
+  STATIC_ANNOTATIONS = Array.isArray(layout.annotations) ? layout.annotations.slice() : [];
+  STATIC_SHAPES      = Array.isArray(layout.shapes)      ? layout.shapes.slice()      : [];
+  Plotly.newPlot('chart', traces, layout, PLOT_CFG);
+  const ch = document.getElementById('chart');
+  let _rafPending = false;
+  ch.addEventListener('mousemove', (e) => {
+    const rect = ch.getBoundingClientRect();
+    const ox = e.clientX - rect.left;
+    const oy = e.clientY - rect.top;
+    LAST_CURSOR = { offsetX: ox, offsetY: oy };
+    /* ⭐ 鼠标进入图表：显示右侧固定卡片 */
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard && cvCard.style.display === 'none') cvCard.style.display = 'block';
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => { _rafPending = false; drawManualCrosshair(ox, oy); });
+  });
+  ch.addEventListener('mouseleave', () => {
+    clearManualCrosshair();
+    /* ⭐ 鼠标离开图表：隐藏右侧固定卡片，清空内容重置提示态 */
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard) cvCard.style.display = 'none';
+    const cvEmpty = document.getElementById('cv-empty');
+    const cvBody  = document.getElementById('cv-body');
+    if (cvEmpty) cvEmpty.style.display = 'block';
+    if (cvBody)  cvBody.style.display  = 'none';
+  });
+  // ⚠️ 死循环保护：drawManualCrosshair 内部 relayout 会触发 plotly_relayout/plotly_afterplot，必须检查 _SUPPRESS_LAYOUT_EVENTS
+  ch.on('plotly_afterplot', () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+
+  /* =========================================================
+   * Y 轴缩放控制：X 变化（rangeslider/rangeselector/autorange）后 Y 自动适配可见窗
+   * ========================================================= */
+  const Y_KEY_RE  = /^yaxis(\.range\[\d\]|\.autorange|\.range)?$/;
+  const Y2_KEY_RE = /^yaxis2(\.range\[\d\]|\.autorange|\.range)?$/;
+  const X_KEY_RE  = /^xaxis(\.range\[\d\]|\.autorange|\.range|\.rangeslider|\.rangeselector.*)?$/;
+
+  ch.on('plotly_relayout', (evt) => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    const keys = evt ? Object.keys(evt) : [];
+
+    // 1) 检测是否包含显式 Y 轴范围（用户框选矩形拖出的 XY 同时缩放 → 尊重用户选择，暂不自适应，直到下次 X-only 操作）
+    const hasYUserExplicit = keys.some(k => Y_KEY_RE.test(k) && k.indexOf('range') !== -1)
+                          || keys.some(k => Y2_KEY_RE.test(k) && k.indexOf('range') !== -1);
+    if (hasYUserExplicit) {
+      _LAST_Y_USER_EXPLICIT = true;
+      const st = document.getElementById('y-status-text');
+      if (st) st.innerHTML = '💡 检测到矩形框选（手动设置了 Y 范围），暂停自动跟随。拖动底部 rangeslider 或点上方按钮可重新适配';
+    }
+
+    // 2) 检测是否仅 X 范围变化（rangeslider 拖动 / rangeselector 按钮点击 / x autorange → 触发 Y 自动跟随）
+    const hasXEvent = keys.length === 0 || keys.some(k => X_KEY_RE.test(k));
+    if (hasXEvent) {
+      _LAST_Y_USER_EXPLICIT = false;   // 发生 X 操作 → 重新启用自动跟随
+      if (CFG_Y_FOLLOW_X) {
+        // 延迟 1 tick，等 xaxis.range 写入 _fullLayout
+        setTimeout(() => autoFitYAxisToVisibleX(false), 10);
+      }
+    }
+
+    // 3) 常规：重绘十字光标
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+
+  /* ---------- 绑定顶部 Y 控制 UI ---------- */
+  const bindYControls = () => {
+    const cb = document.getElementById('y-follow-x');
+    if (cb) {
+      cb.checked = CFG_Y_FOLLOW_X;
+      cb.addEventListener('change', () => {
+        CFG_Y_FOLLOW_X = !!cb.checked;
+        const st = document.getElementById('y-status-text');
+        if (CFG_Y_FOLLOW_X) {
+          _LAST_Y_USER_EXPLICIT = false;
+          autoFitYAxisToVisibleX(true);
+          if (st) st.innerHTML = st.innerHTML.replace(/<b style="color:#.*?">关闭<\/b>/, '<b style="color:#0ea5e9;">开启</b>');
+        } else {
+          if (st) st.innerHTML = '💡 Y 自适应：<b style="color:#94a3b8;">关闭</b> · 使用顶部按钮或矩形框手动控制';
+        }
+      });
+    }
+    const bi = document.getElementById('btn-y-zoom-in');   if (bi) bi.onclick = () => manualYZoom(+1);
+    const bo = document.getElementById('btn-y-zoom-out');  if (bo) bo.onclick = () => manualYZoom(-1);
+    const bf = document.getElementById('btn-y-fit');       if (bf) bf.onclick = () => { _LAST_Y_USER_EXPLICIT=false; autoFitYAxisToVisibleX(true); };
+    const br = document.getElementById('btn-y-reset');     if (br) br.onclick = resetYAxisToFull;
+  };
+  bindYControls();
+}
+
+/* ------- 信息卡 ------- */
+function fillInfoCards(p) {
+  const valid = arr => arr && Array.isArray(arr) ? arr.filter(v => v!=null && !isNaN(v)) : [];
+  const s = (p && p.summary) ? p.summary : {};
+
+  /* ====== 填充图表下方：数据区间 ====== */
+  const cr = document.getElementById('cmi-range');
+  if (cr) {
+    let fromD = '—', toD = '—', yrs = '—', cnt = 0;
+    if (p && Array.isArray(p.date) && p.date.length) {
+      fromD = String(p.date[0]).slice(0, 10);
+      toD   = String(p.date[p.date.length - 1]).slice(0, 10);
+      cnt   = p.date.length;
+      try {
+        const ms = new Date(p.date[p.date.length - 1]) - new Date(p.date[0]);
+        if (ms > 0) yrs = (ms / 31536000000).toFixed(1);
+      } catch(e) {}
+    } else if (s && s.from && s.to) {
+      fromD = String(s.from).slice(0, 10);
+      toD   = String(s.to).slice(0, 10);
+    }
+    cr.innerHTML = `${fromD} &nbsp;→&nbsp; ${toD} &nbsp;·&nbsp; 跨度 ~${yrs} 年 &nbsp;·&nbsp; 共 ${cnt ? cnt.toLocaleString() : 0} 个日度节点 &nbsp;·&nbsp; 时间频率：日度连续（周末/节假日金价向前 FFill）`;
+  }
+
+  const g = document.querySelector('#card-gold > span');
+  if (g && p && p.gold_reserve_usd_bn && p.gold_reserve_tons && p.gold_price_usd_oz) {
+    const i = p.gold_reserve_usd_bn.length - 1;
+    const latest_usd = p.gold_reserve_usd_bn[i];
+    const latest_ton = p.gold_reserve_tons[i];
+    const latest_px  = p.gold_price_usd_oz[i];
+    const sub = document.querySelector('#card-gold .sub');
+    g.innerHTML = `<b style="color:#2d1b00;">$${fmt(latest_usd,0)} B</b><br><span style="font-size:13px;color:#6b5b00;">≈ ${fmt(latest_ton,0)} 吨 · 金价 $${fmt(latest_px,0)}/oz</span>`;
+    if (sub) {
+      const vu = valid(p.gold_reserve_usd_bn);
+      const vt = valid(p.gold_reserve_tons);
+      const vp = valid(p.gold_price_usd_oz);
+      if (vu.length) sub.innerHTML =
+        `历史最低：$${fmt(Math.min(...vu),0)} B &nbsp;·&nbsp; 历史最高：$${fmt(Math.max(...vu),0)} B<br/>` +
+        `吨数区间：${fmt(Math.min(...vt),0)} ~ ${fmt(Math.max(...vt),0)} 吨 &nbsp;·&nbsp; 金价区间：$${fmt(Math.min(...vp),0)}/oz ~ $${fmt(Math.max(...vp),0)}/oz<br/>` +
+        `计算口径（与参考图一致）：吨数 × 32,150.7 金衡盎司/吨 × 当日金价(USD/oz) ÷ 10⁹`;
+    }
+  }
+  const b = document.querySelector('#card-base > span');
+  if (b && p && p.monetary_base_bn) {
+    const latest = p.monetary_base_bn[p.monetary_base_bn.length-1];
+    const sub = document.querySelector('#card-base .sub');
+    b.innerHTML = `$${fmt(latest,0)} B<br><span style="font-size:14px;">(${(latest/1000).toFixed(2)} 万亿 USD)</span>`;
+    if (sub) {
+      const v = valid(p.monetary_base_bn);
+      if (v.length) sub.innerHTML = `历史最低：$${fmt(Math.min(...v),0)} B &nbsp;·&nbsp; 历史最高：$${fmt(Math.max(...v),0)} B<br/>= 流通中现金 + 银行准备金 · FRED BOGMBASE / AMBNOVEM`;
+    }
+  }
+  const c = document.querySelector('#card-circ > span');
+  if (c && p && p.currency_circ_bn) {
+    const latest = p.currency_circ_bn[p.currency_circ_bn.length-1];
+    const sub = document.querySelector('#card-circ .sub');
+    c.innerHTML = `$${fmt(latest,0)} B<br><span style="font-size:14px;">(${(latest/1000).toFixed(2)} 万亿 USD)</span>`;
+    if (sub) {
+      const v = valid(p.currency_circ_bn);
+      if (v.length) sub.innerHTML = `历史最低：$${fmt(Math.min(...v),0)} B &nbsp;·&nbsp; 历史最高：$${fmt(Math.max(...v),0)} B<br/>公众持有现金总量 · FRED CURRCIRC`;
+    }
+  }
+  const r = document.querySelector('#card-ratio > span');
+  if (r && p && p.gold_reserve_usd_bn && p.currency_circ_bn) {
+    const i  = p.currency_circ_bn.length - 1;
+    const cBn       = p.currency_circ_bn[i];
+    const goldUsdBn = p.gold_reserve_usd_bn[i];
+    if (goldUsdBn > 0 && cBn > 0) {
+      const ratio = cBn / goldUsdBn;
+      const sub = document.querySelector('#card-ratio .sub');
+      r.innerHTML = `${fmt(ratio,1)} x`;
+      if (sub) sub.innerHTML =
+        `覆盖率 = 循环信贷 $${fmt(cBn,0)}B ÷ 黄金储备市值 $${fmt(goldUsdBn,0)}B<br/>` +
+        `每 $${fmt(ratio,0)} 流通美元，对应 $1 黄金储备做"支撑"<br/>` +
+        `比值越大 → 美元信用对黄金的"背书"越稀薄（当前美元是纯信用货币）`;
+    }
+  }
+}
+
+/* ---------- 初始化 ---------- */
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('chart').innerHTML = `<div class="loading">📡 正在请求 ${DATA_API} …</div>`;
+
+  fetch(DATA_API, { cache: 'no-cache' })
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(drawChart)
+    .catch(err => {
+      const chartEl = document.getElementById('chart');
+      chartEl.innerHTML = `
+        <div class="empty-tip" style="background:#fef1f1;border-color:#ffcdd2;color:#6b1513;">
+          <h3>❌ 加载失败：${err.message || err}</h3>
+          接口 ${DATA_API} 暂时不可用。
+          <button id="btn-empty-reload">↺ 重新加载本页</button>
+        </div>`;
+      document.getElementById('btn-empty-reload').onclick = () => window.location.reload();
+    });
+});
+</script>
+
+</body>
+</html>

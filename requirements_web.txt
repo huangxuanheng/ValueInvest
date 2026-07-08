@@ -1,0 +1,10 @@
+flask>=2.3
+sqlalchemy>=2.0
+pandas>=1.5
+requests>=2.31
+apscheduler>=3.10
+# A 股指数估值数据源（乐咕乐股 + 全A PE/PB）
+akshare>=1.18.60
+py-mini-racer>=0.6.0
+# 若使用 MySQL 再加下面这行
+# pymysql>=1.1

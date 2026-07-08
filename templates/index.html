@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>金银比 · 黄金价 · 白银价</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", Segoe UI, Roboto, sans-serif;
+    margin: 0; padding: 20px;
+    background: #f7f8fa; color: #222;
+  }
+  h1 {
+    margin: 0 0 10px 0; font-size: 22px;
+    border-left: 6px solid #c9a227; padding-left: 10px;
+  }
+  .sub { color: #666; font-size: 13px; margin-bottom: 16px; line-height: 1.7; }
+
+  /* ========= 顶部状态栏 ========= */
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    background: #fff; padding: 14px 18px; border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-bottom: 14px;
+  }
+  .status-item .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .status-item .value { font-size: 18px; font-weight: 600; color: #222; }
+  .status-item .value.small { font-size: 14px; font-weight: 500; }
+  .gold { color: #c9a227 !important; }
+  .silver { color: #8a8d93 !important; }
+  .ratio-high { color: #8B0000; }
+
+  /* ========= 操作栏 ========= */
+  .action-bar {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  button {
+    background: #c9a227; color: #fff; border: none;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 500;
+  }
+  button:hover { background: #b08f1f; }
+  button.secondary { background: #e6e8ec; color: #333; }
+  button.secondary:hover { background: #d6d8dc; }
+  .tip {
+    font-size: 12px; color: #666;
+    background: #fff7e0; padding: 6px 10px; border-radius: 6px;
+    border-left: 3px solid #c9a227; line-height: 1.7;
+  }
+
+  /* ========= 当前值卡片：固定在右上角，跟随鼠标更新 ========= */
+  .current-value-card {
+    position: fixed;
+    top: 120px;
+    right: 24px;
+    z-index: 9999;
+    background: #fffdf8;
+    border: 2px solid #c9a227;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 6px 24px rgba(201,162,39,0.22), 0 2px 8px rgba(0,0,0,0.08);
+    min-width: 290px;
+    backdrop-filter: blur(8px);
+  }
+  .current-value-card .cv-title {
+    font-size: 12px; color: #888;
+    margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px dashed #eee;
+    font-weight: 600;
+  }
+  .current-value-card .cv-date {
+    font-size: 14px; font-weight: 700; color: #222;
+    margin-bottom: 10px;
+  }
+  .current-value-card .cv-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0; font-size: 13.5px;
+  }
+  .current-value-card .cv-row .cv-label { color: #666; }
+  .current-value-card .cv-row .cv-val.gold { color: #c9a227; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-row .cv-val.silver { color: #616161; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-row .cv-val.ratio { color: #8B0000; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-empty {
+    font-size: 12px; color: #aaa; text-align: center; padding: 10px 0;
+  }
+
+  /* 隐藏 Plotly 默认 hover 气泡（遮挡走势+靠太近），数值通过右上角固定卡片显示 */
+  .hoverlayer { display: none !important; }
+  .nsewdrag   { cursor: crosshair !important; }
+
+  /* ========= 三图联动主容器 ========= */
+  #charts-wrap {
+    background: #fff; padding: 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-right: 310px; /* 给固定卡片留空间 */
+  }
+  #charts { width: 100%; min-height: 1100px; }
+  .loading { text-align: center; padding: 80px; color: #888; }
+
+  @media (max-width: 720px) {
+    #charts-wrap { margin-right: 0; }
+    .current-value-card {
+      position: static; margin-bottom: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>📈 金银比 · 黄金 · 白银 价格历史</h1>
+<div class="sub">
+  数据源：LBMA 伦敦金银市场协会定盘价（美元/盎司）。<br/>
+  <b>联动说明</b>：三张图（黄金价 / 白银价 / 金银比）纵向堆叠，共享 X 轴时间范围。<br/>
+  放大/缩小任意图 → 三张同步；鼠标悬停任意图 → 三张十字虚线联动 + 右上角卡片显示当前值。
+</div>
+
+<!-- 最新整体数据状态 -->
+<div class="status-bar">
+  <div class="status-item">
+    <div class="label">数据库总记录数</div>
+    <div class="value small" id="s-total">{{ total_rows }} 条</div>
+  </div>
+  <div class="status-item">
+    <div class="label">最新交易日</div>
+    <div class="value small" id="s-date">{{ latest.date_k if latest else '—' }}</div>
+  </div>
+  <div class="status-item">
+    <div class="label">黄金 最新价 (美元/盎司)</div>
+    <div class="value gold" id="s-gold">{{ '%.2f'|format(latest.gold_price) if latest and latest.gold_price else '—' }}</div>
+  </div>
+  <div class="status-item">
+    <div class="label">白银 最新价 (美元/盎司)</div>
+    <div class="value silver" id="s-silver">{{ '%.3f'|format(latest.silver_price) if latest and latest.silver_price else '—' }}</div>
+  </div>
+  <div class="status-item">
+    <div class="label">金银比 最新值</div>
+    <div class="value ratio-high" id="s-ratio">{{ '%.2f'|format(latest.ratio) if latest and latest.ratio else '—' }}</div>
+  </div>
+  <div class="status-item">
+    <div class="label">自动采集频率 · 页面生成时间</div>
+    <div class="value small">每 {{ collect_interval }} 小时 · {{ update_time }}</div>
+  </div>
+</div>
+
+<!-- 操作栏 -->
+<div class="action-bar">
+  <button id="btn-refresh">🔄 立即采集最新价并入库</button>
+  <button class="secondary" id="btn-reset">↺ 重置图表缩放</button>
+  <span class="tip">
+    💡 提示：框选任意图局部放大；双击任意图回到全视图；鼠标在任意图上移动 → 三图同时显示十字虚线 + 右上角显示当前日期的金价/银价/比值
+  </span>
+</div>
+
+<!-- 鼠标当前值卡片（右上角固定） —— 初始隐藏，鼠标移入图表才显示 -->
+<div class="current-value-card" id="cv-card" style="display:none;">
+  <div class="cv-title">📍 当前光标处数据（随鼠标移动）</div>
+  <div class="cv-empty" id="cv-empty">将鼠标移动到图表上查看数值</div>
+  <div id="cv-body" style="display:none;">
+    <div class="cv-date" id="cv-date">—</div>
+    <div class="cv-row">
+      <span class="cv-label">🥇 黄金价格：</span>
+      <span class="cv-val gold" id="cv-gold">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">🥈 白银价格：</span>
+      <span class="cv-val silver" id="cv-silver">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">📊 金银比：</span>
+      <span class="cv-val ratio" id="cv-ratio">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- 三图联动主图表容器 -->
+<div id="charts-wrap">
+  <div id="charts"><div class="loading">正在加载金银历史数据并构建三图联动…</div></div>
+</div>
+
+<script>
+/* =========================================================
+ * 三图联动实现思路：
+ *   - 使用 Plotly.make_subplots(rows=3, cols=1, shared_xaxes=True)
+ *     → row1: 黄金价格（金色）
+ *     → row2: 白银价格（灰色）
+ *     → row3: 金银比（深红）
+ *   - shared_xaxes=True → 天然同步 X 轴缩放/拖动
+ *   - hovermode='x unified' → 三张图同一 X 位置同时高亮 + 十字虚线（spike）联动
+ *   - 监听 plotly_hover 事件 → 更新右上角当前值卡片
+ *   - 每图都有自己的 Y 轴标题 + spike，鼠标悬停时左侧 Y 轴会显示对应的值（Plotly spikesnap='cursor' 自带此效果）
+ * ========================================================= */
+
+const plotConfig = {
+  responsive: true,
+  displaylogo: false,
+  modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+  locale: 'zh-CN',
+};
+
+/* ---------- 数据缓存：用于按日期快速查当前值 ---------- */
+let DATA_BY_DATE = {};  // { '2024-01-02': {gold, silver, ratio} }
+let DATE_LIST = [];    // 排序后的日期数组，用于二分查找最近日期
+/* 静态 annotations（布雷顿、均值、阈值线注释等），hover 时追加 3 个 Y 轴数值标签 */
+let STATIC_ANNOTATIONS = [];
+/* 静态 shapes（布雷顿竖线 / 均值横线 / 阈值线等）—— hover 时和 crosshair 动态线合并 */
+let STATIC_SHAPES = [];
+/* 最近一次光标像素位置（plotly_afterplot/relayout 后重绘 crosshair 用） */
+let LAST_CURSOR = null;  // { offsetX, offsetY, containerW, containerH }
+/* ⭐ 死循环保护：drawManualCrosshair 内部调用 Plotly.relayout 时置 TRUE，plotly_relayout 回调里若为 TRUE 则跳过，避免递归死锁 */
+let _SUPPRESS_LAYOUT_EVENTS = false;
+
+/* ---------- 像素 ↔ paper ↔ 数据坐标 换算工具（核心：完全按光标位置，不按日期查数据） ---------- */
+function getLayoutDims(gd) {
+  const fl = gd._fullLayout || {};
+  const w  = gd.clientWidth  || fl.width  || 1200;
+  const h  = gd.clientHeight || fl.height || 1180;
+  const ml = (fl.margin && fl.margin.l != null) ? fl.margin.l : 90;
+  const mr = (fl.margin && fl.margin.r != null) ? fl.margin.r : 65;
+  const mt = (fl.margin && fl.margin.t != null) ? fl.margin.t : 260;
+  const mb = (fl.margin && fl.margin.b != null) ? fl.margin.b : 100;
+  return { w, h, ml, mr, mt, mb, plotW: Math.max(1, w - ml - mr), plotH: Math.max(1, h - mt - mb) };
+}
+function pixelToPaper(gd, offsetX, offsetY) {
+  const D = getLayoutDims(gd);
+  const xInPlot = offsetX - D.ml;
+  const yInPlot = offsetY - D.mt;
+  const paper_x = xInPlot / D.plotW;
+  const paper_y = 1 - (yInPlot / D.plotH);
+  return { paperX: paper_x, paperY: paper_y, dims: D, inPlot: xInPlot >= 0 && xInPlot <= D.plotW && yInPlot >= 0 && yInPlot <= D.plotH };
+}
+function paperYToAxisValue(gd, paperY, axisName) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl[axisName];  // e.g., yaxis / yaxis2 / yaxis3
+  if (!ax || !ax.domain || !ax.range) return null;
+  const [domLo, domHi] = ax.domain;   // paper 范围
+  const [rngLo, rngHi] = ax.range;    // 数据范围
+  if (domHi === domLo) return null;
+  // 线性映射：paperY 在 [domLo,domHi] 中占比 → 对应数据值
+  const t = (paperY - domLo) / (domHi - domLo);
+  return rngLo + t * (rngHi - rngLo);
+}
+function paperXToXData(gd, paperX) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl.xaxis3 || fl.xaxis; if (!ax || !ax.range) return null;
+  // ⭐ Plotly 日期轴 range 可能是 ① 数字（ms 时间戳）② 字符串（'2024-01-05' / '2024-01-05 00:00:00'）
+  //    必须统一转成 ms 数字，否则 Number('2024-01-05')=NaN → 后续日期/数据查找全部中断
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isNaN(v) ? null : v;
+    if (typeof v === 'string') {
+      const t = new Date(v).getTime();
+      return isNaN(t) ? null : t;
+    }
+    return null;
+  };
+  const r0 = toMs(ax.range[0]);
+  const r1 = toMs(ax.range[1]);
+  if (r0 == null || r1 == null || r1 === r0) return null;
+  return r0 + paperX * (r1 - r0);
+}
+function xDataToDateStr(ms) {
+  if (ms == null || isNaN(ms)) return null;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function buildDateIndex(rows) {
+  DATA_BY_DATE = {};
+  DATE_LIST = [];
+  for (const r of rows) {
+    if (!r.date_k) continue;
+    const hasData = (r.gold_price != null || r.silver_price != null || r.ratio != null);
+    if (!hasData) continue;
+    DATE_LIST.push(r.date_k);
+    DATA_BY_DATE[r.date_k] = {
+      gold:   r.gold_price,
+      silver: r.silver_price,
+      ratio:  r.ratio,
+    };
+  }
+}
+
+/* ---------- 右上角：当前值卡片 + Y 轴交点数值标签 ---------- */
+function updateCurrentCard(dateStr) {
+  if (!dateStr || !DATA_BY_DATE[dateStr]) {
+    // 找最近日期
+    const near = findNearestDate(dateStr);
+    if (!near) return;
+    dateStr = near;
+  }
+  const d = DATA_BY_DATE[dateStr];
+  document.getElementById('cv-empty').style.display = 'none';
+  document.getElementById('cv-body').style.display = 'block';
+  document.getElementById('cv-date').innerText = dateStr;
+  document.getElementById('cv-gold').innerText   = d.gold   != null ? Number(d.gold).toFixed(2)   : '—';
+  document.getElementById('cv-silver').innerText = d.silver != null ? Number(d.silver).toFixed(3) : '—';
+  document.getElementById('cv-ratio').innerText  = d.ratio  != null ? Number(d.ratio).toFixed(2)  : '—';
+  return d;
+}
+
+/**
+ * ⭐⭐⭐ 手动绘制十字光标（彻底解决"卡死"+"数值错位"两个核心 bug）⭐⭐⭐
+ *   1) 死循环保护：Plotly.relayout 会触发 plotly_relayout 事件，如不加锁会递归调用 drawManualCrosshair 把浏览器卡死
+ *   2) 数值错位修复：3 条 Y 轴 domain 各不相同
+ *        - 光标实际"落在"哪行的 domain 内 → 该行 Y 标签 = 光标在该轴上的实际坐标（指 60 → 显示 60）
+ *        - 其他两行（光标没移到的区域）   → 按 X 轴日期查真实市场数据，不乱投影、不外推荒谬负数
+ *   3) 竖线用 yref=paper (y0=0, y1=1)：真正贯穿黄金/白银/金银比三图（原生 spikes 做不到跨子图）
+ *   4) 右上角卡片：保持显示真实日期的市场值（数据参考，不跟光标 Y 走）
+ */
+function drawManualCrosshair(offsetX, offsetY) {
+  const gd = document.getElementById('charts');
+  if (!gd || !gd._fullLayout) return;
+  const { paperX, paperY, inPlot } = pixelToPaper(gd, offsetX, offsetY);
+  if (!inPlot) { clearManualCrosshair(); return; }
+  const fl = gd._fullLayout;
+
+  /* ==== Step A：三条 Y 轴"行"元信息 ==== */
+  const ROWS = [
+    { yaxisName:'yaxis',  yref:'y',  dataKey:'gold',   lineColor:'#c9a227', fmt:(v)=>Number(v).toFixed(2) },
+    { yaxisName:'yaxis2', yref:'y2', dataKey:'silver', lineColor:'#616161', fmt:(v)=>Number(v).toFixed(3) },
+    { yaxisName:'yaxis3', yref:'y3', dataKey:'ratio',  lineColor:'#8B0000', fmt:(v)=>Number(v).toFixed(2) },
+  ];
+  const paperInDomain = (pY, axis) => {
+    if (!axis || !axis.domain) return false;
+    const [d0, d1] = axis.domain;
+    const [lo, hi] = d0 < d1 ? [d0, d1] : [d1, d0];
+    return pY >= lo - 0.01 && pY <= hi + 0.01;   // 留 1% margin 防止边缘抖动
+  };
+
+  /* ==== Step B：判定光标落在哪一行 ==== */
+  let activeRow = null;
+  for (const row of ROWS) {
+    const ax = fl[row.yaxisName];
+    if (ax && paperInDomain(paperY, ax)) { activeRow = row; break; }
+  }
+  // 若落在行与行之间的白边（margin），选最近的一行兜底
+  if (!activeRow) {
+    let bestD = Infinity;
+    for (const row of ROWS) {
+      const ax = fl[row.yaxisName];
+      if (!ax || !ax.domain) continue;
+      const mid = (ax.domain[0] + ax.domain[1]) / 2;
+      const d = Math.abs(paperY - mid);
+      if (d < bestD) { bestD = d; activeRow = row; }
+    }
+  }
+
+  /* ==== Step C：X 轴日期 + 对应真实数据（供非光标行使用 + 右上角卡片） ==== */
+  const xMs       = paperXToXData(gd, paperX);
+  const xStr      = xDataToDateStr(xMs);
+  const nearDate  = xStr ? findNearestDate(xStr) : null;
+  const recAtDate = nearDate && DATA_BY_DATE[nearDate] ? DATA_BY_DATE[nearDate] : null;
+
+  /* ==== Step D：给每一行算 Y 轴数值（核心分支：active 行按光标 Y，其余按日期数据） ==== */
+  const rowVal = {};
+  for (const row of ROWS) {
+    let v = null;
+    if (row === activeRow) {
+      // ✅ 用户核心需求：光标在哪一行 → 该行 Y 标签直接显示光标刻度（不按日期查数据）
+      v = paperYToAxisValue(gd, paperY, row.yaxisName);
+    } else {
+      // 🔧 其他两行（光标没移过去）：用该日期真实市场值，避免外推出荒谬负数
+      v = recAtDate ? recAtDate[row.dataKey] : null;
+    }
+    if (v != null && !isNaN(v)) rowVal[row.yaxisName] = Number(v);
+  }
+
+  /* ==== Step E：shapes = 1 条竖线（paper 全高）+ 每行 1 条横线 ==== */
+  const crossShapes = [
+    {
+      type: 'line', xref: 'paper', yref: 'paper',
+      x0: paperX, x1: paperX, y0: 0, y1: 1,
+      line: { color: '#2E7D32', width: 1.0, dash: 'dash' }, layer: 'above',
+    },
+  ];
+  for (const row of ROWS) {
+    const v = rowVal[row.yaxisName];
+    if (v == null) continue;
+    crossShapes.push({
+      type: 'line', xref: 'paper', yref: row.yref,
+      x0: 0, x1: 1, y0: v, y1: v,
+      line: { color: row.lineColor, width: 1.0, dash: 'dash' }, layer: 'above',
+    });
+  }
+
+  /* ==== Step F：annotations 轴标签（每行 Y 标签 + X 轴日期标签） ==== */
+  const crossAnnots = [];
+  for (const row of ROWS) {
+    const v = rowVal[row.yaxisName];
+    if (v == null) continue;
+    crossAnnots.push({
+      x: 0.005, xref: 'paper', xanchor: 'left',
+      y: v, yref: row.yref, yanchor: 'middle',
+      text: `<b>${row.fmt(v)}</b>`,
+      font: { color: '#fff', size: 12, family: 'Consolas, Menlo, monospace' },
+      bgcolor: row.lineColor, opacity: 0.96, borderpad: 3, showarrow: false,
+    });
+  }
+  if (nearDate) {
+    crossAnnots.push({
+      x: paperX, xref: 'paper', xanchor: 'center',
+      y: -0.04, yref: 'paper', yanchor: 'top',
+      text: `<b>${nearDate}</b>`,
+      font: { color: '#fff', size: 12, family: 'Consolas, Menlo, monospace' },
+      bgcolor: '#1565C0', opacity: 0.95, borderpad: 3, showarrow: false,
+    });
+  }
+
+  /* ==== Step G：Plotly.relayout（上锁！否则 plotly_relayout 事件递归死锁卡死） ==== */
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, {
+    shapes:      STATIC_SHAPES.concat(crossShapes),
+    annotations: STATIC_ANNOTATIONS.concat(crossAnnots),
+  }).then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+
+  /* ==== Step H：右上角"当前值卡片"保持真实日期的真实市场值（与光标 Y 无关） ==== */
+  if (nearDate && recAtDate) {
+    document.getElementById('cv-empty').style.display = 'none';
+    document.getElementById('cv-body').style.display  = 'block';
+    document.getElementById('cv-date').innerText      = nearDate;
+    document.getElementById('cv-gold').innerText      = recAtDate.gold   != null ? Number(recAtDate.gold).toFixed(2)   : '—';
+    document.getElementById('cv-silver').innerText    = recAtDate.silver != null ? Number(recAtDate.silver).toFixed(3) : '—';
+    document.getElementById('cv-ratio').innerText     = recAtDate.ratio  != null ? Number(recAtDate.ratio).toFixed(2)  : '—';
+  }
+}
+function clearManualCrosshair() {
+  const gd = document.getElementById('charts');
+  if (!gd) return;
+  // 同样加锁：relayout 触发的 plotly_relayout 事件别再画十字
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { shapes: STATIC_SHAPES, annotations: STATIC_ANNOTATIONS })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+  LAST_CURSOR = null;
+}
+function findNearestDate(target) {
+  if (!target || !DATE_LIST.length) return null;
+  let lo = 0, hi = DATE_LIST.length - 1;
+  const t = new Date(target).getTime();
+  if (isNaN(t)) return DATE_LIST[DATE_LIST.length - 1];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const mv = new Date(DATE_LIST[mid]).getTime();
+    if (mv === t) return DATE_LIST[mid];
+    else if (mv < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  // 比较 lo/hi 哪个更近
+  const candidates = [];
+  if (lo < DATE_LIST.length) candidates.push(DATE_LIST[lo]);
+  if (hi >= 0) candidates.push(DATE_LIST[hi]);
+  if (!candidates.length) return null;
+  let best = candidates[0], bestDiff = Infinity;
+  for (const c of candidates) {
+    const diff = Math.abs(new Date(c).getTime() - t);
+    if (diff < bestDiff) { bestDiff = diff; best = c; }
+  }
+  return best;
+}
+
+/* ---------- 构建三图布局（手动 domain + 普通 scatter，保证 Plotly.js 100% 兼容） ---------- */
+function buildFigure(rows, stats) {
+  const xs = [], goldYs = [], silverYs = [], ratioYs = [];
+  let minRatio = Infinity, maxRatio = -Infinity;
+  let minRDate = null, maxRDate = null;
+  let minGold = Infinity, maxGold = -Infinity, minGDate = null, maxGDate = null;
+  let minSilver = Infinity, maxSilver = -Infinity, minSDate = null, maxSDate = null;
+
+  for (const r of rows) {
+    const hasAny = (r.gold_price != null) || (r.silver_price != null) || (r.ratio != null);
+    if (!hasAny) continue;
+    xs.push(r.date_k);
+    goldYs.push(r.gold_price != null ? r.gold_price : null);
+    silverYs.push(r.silver_price != null ? r.silver_price : null);
+    ratioYs.push(r.ratio != null ? r.ratio : null);
+
+    if (r.ratio != null && r.ratio < minRatio) { minRatio = r.ratio; minRDate = r.date_k; }
+    if (r.ratio != null && r.ratio > maxRatio) { maxRatio = r.ratio; maxRDate = r.date_k; }
+    if (r.gold_price != null && r.gold_price < minGold) { minGold = r.gold_price; minGDate = r.date_k; }
+    if (r.gold_price != null && r.gold_price > maxGold) { maxGold = r.gold_price; maxGDate = r.date_k; }
+    if (r.silver_price != null && r.silver_price < minSilver) { minSilver = r.silver_price; minSDate = r.date_k; }
+    if (r.silver_price != null && r.silver_price > maxSilver) { maxSilver = r.silver_price; maxSDate = r.date_k; }
+  }
+
+  const fromDate = xs.length ? xs[0] : null;
+  const toDate   = xs.length ? xs[xs.length - 1] : null;
+  const years = (fromDate && toDate)
+    ? Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 31536000000))
+    : 20;
+  const btns = [{ label: '全图', step: 'all' }];
+  if (years >= 1)  btns.unshift({ count: 1,  label: '近1年',  step: 'year', stepmode: 'backward' });
+  if (years >= 5)  btns.unshift({ count: 5,  label: '近5年',  step: 'year', stepmode: 'backward' });
+  if (years >= 10) btns.unshift({ count: 10, label: '近10年', step: 'year', stepmode: 'backward' });
+  if (years >= 20) btns.unshift({ count: 20, label: '近20年', step: 'year', stepmode: 'backward' });
+
+  /* =========================================================
+   * Plotly.js 多子图（3行1列）手动正确配置方式：
+   *   - 3 组独立的 (xaxis, yaxis) 对
+   *   - 每组 Y 轴通过 domain 设置垂直分区：
+   *       yaxis  (row1 顶):  domain = [0.68, 1.00]   占 ~32% 高度
+   *       yaxis2 (row2 中):  domain = [0.34, 0.66]   占 ~32% 高度
+   *       yaxis3 (row3 底):  domain = [0.00, 0.32]   占 ~32% 高度
+   *   - xaxis2 / xaxis3 通过 matches='x' 与顶图 X 轴自动同步范围
+   *   - 不用 overlaying 属性（它会导致轴注册失败，这是前次 bug 根因）
+   *   - traces 全部用普通 scatter 类型（scattergl 对多 xaxis 支持不完整）
+   * ========================================================= */
+
+  /* 注意：原生 spikes 在多子图多轴场景下不连贯 + 无法控制标签值 → 彻底禁用，改画自定义 shapes+annotations */
+  const spikeBase = {
+    showspikes: false,
+    ticks: 'outside',
+    showline: true,
+    ticklabelposition: 'outside',
+    showticklabels: true,
+  };
+
+  // ----------- Layout 完整定义 -----------
+  const layout = {
+    title: {
+      /* title 拆成 3 行独立（大标题 / 数据区间 / 交互说明），从根源避免重叠 */
+      text: [
+        `<b style="font-size:18px;">黄金 · 白银 · 金银比</b>`,
+        `<span style="font-size:12.5px;color:#555;font-weight:normal;">📅 数据区间：${fromDate || '—'} → ${toDate || '—'} &nbsp;·&nbsp; 跨度 ~${years} 年</span>`,
+      ].join('<br>'),
+      x: 0.0, xanchor: 'left', y: 1, yanchor: 'top',
+      font: { size: 18, family: 'Microsoft YaHei, PingFang SC', color: '#222' },
+      pad: { t: 20, b: 8, l: 4, r: 0 },
+    },
+    /* margin 顶部增加到 320（原 260，3 行大标题 + 分图切换 legend 要占空间，避免大标题被裁切） */
+    margin: { t: 320, r: 65, b: 100, l: 90 },
+    paper_bgcolor: '#ffffff',
+    plot_bgcolor: '#ffffff',
+    /* legend 彻底移出标题区域（y: 1.30，原 1.36，下移避免越出 SVG 顶部） */
+    legend: {
+      orientation: 'h',
+      y: 1.30,
+      x: 0.0,
+      xanchor: 'left',
+      bgcolor: 'rgba(255,255,255,0)',
+      borderwidth: 0,
+      font: { size: 12.5 },
+      itemclick: 'toggle',
+      itemdoubleclick: 'toggleothers',
+    },
+    hovermode: 'x unified',
+    spikedistance: -1,
+    /* 再隐藏默认 hoverlabel 双保险（即使CSS失效，也让气泡完全透明） */
+    hoverlabel: {
+      bgcolor: 'rgba(0,0,0,0)',
+      bordercolor: 'rgba(0,0,0,0)',
+      font: { color: 'rgba(0,0,0,0)', size: 1 },
+      namelength: -1,
+    },
+
+    /* ====== 3 个 X 轴（matches='x' 实现联动） ====== */
+    // Row1（顶） X 轴：不显示 tick labels，节省空间
+    xaxis: {
+      type: 'date', autorange: true,
+      showgrid: true, gridcolor: '#eee',
+      showticklabels: false, tickfont: { size: 10 },
+      domain: [0, 1], anchor: 'y',
+      ...spikeBase, spikecolor: '#C62828',
+    },
+    // Row2（中） X 轴：matches='x' 自动同步顶图 X 范围
+    xaxis2: {
+      type: 'date', autorange: true,
+      showgrid: true, gridcolor: '#eee',
+      showticklabels: false, tickfont: { size: 10 },
+      matches: 'x', domain: [0, 1], anchor: 'y2',
+      ...spikeBase, spikecolor: '#C62828',
+    },
+    // Row3（底） X 轴：显示 tick labels + rangeslider + rangeselector
+    xaxis3: {
+      type: 'date', autorange: true,
+      showgrid: true, gridcolor: '#eee',
+      matches: 'x', domain: [0, 1], anchor: 'y3',
+      rangeslider: { visible: true, thickness: 0.045 },
+      rangeselector: { buttons: btns, bgcolor: '#fafafa', borderwidth: 1, bordercolor: '#ddd', y: 1.04 },
+      title: { text: '日期（放大自动细化刻度：十年 → 年 → 月 → 日）', standoff: 6, font: { size: 11 } },
+      tickfont: { size: 11 },
+      ...spikeBase, spikecolor: '#C62828',
+    },
+
+    /* ====== 3 个 Y 轴（独立 domain 分区） ====== */
+    // Row1（顶 32%） 黄金
+    yaxis: {
+      title: { text: '🥇 黄金价 (USD/Oz)', standoff: 6, font: { color: '#c9a227', size: 13 } },
+      showgrid: true, gridcolor: '#f3f3f3', zeroline: false,
+      tickfont: { color: '#c9a227', size: 11 },
+      side: 'left',
+      domain: [0.68, 1.00], anchor: 'x',
+      ...spikeBase, spikecolor: '#c9a227',
+    },
+    // Row2（中 32%） 白银
+    yaxis2: {
+      title: { text: '🥈 白银价 (USD/Oz)', standoff: 6, font: { color: '#616161', size: 13 } },
+      showgrid: true, gridcolor: '#f3f3f3', zeroline: false,
+      tickfont: { color: '#616161', size: 11 },
+      side: 'left',
+      domain: [0.34, 0.66], anchor: 'x2',
+      ...spikeBase, spikecolor: '#616161',
+    },
+    // Row3（底 32%） 金银比
+    yaxis3: {
+      title: { text: '📊 金银比 (= 金价 / 银价)', standoff: 6, font: { color: '#8B0000', size: 13 } },
+      showgrid: true, gridcolor: '#f3f3f3', zeroline: false,
+      tickfont: { color: '#8B0000', size: 11 },
+      side: 'left',
+      domain: [0.00, 0.32], anchor: 'x3',
+      ...spikeBase, spikecolor: '#8B0000',
+    },
+
+    shapes: [],
+    annotations: [],
+  };
+
+  // ----------- 子图小标题（annotations 方式，Plotly 推荐） -----------
+  layout.annotations.push(
+    { text: '<b>🥇 黄金价格走势</b>', xref: 'paper', yref: 'paper', x: 0.5, y: 0.995, xanchor: 'center', yanchor: 'top', showarrow: false, font: { size: 13 }, bgcolor: '#fff8e6', opacity: 0.88 },
+    { text: '<b>🥈 白银价格走势</b>', xref: 'paper', yref: 'paper', x: 0.5, y: 0.655, xanchor: 'center', yanchor: 'top', showarrow: false, font: { size: 13 }, bgcolor: '#f5f5f5', opacity: 0.88 },
+    { text: '<b>📊 金银比走势</b>',        xref: 'paper', yref: 'paper', x: 0.5, y: 0.315, xanchor: 'center', yanchor: 'top', showarrow: false, font: { size: 13 }, bgcolor: '#ffebee', opacity: 0.88 },
+  );
+
+  // ----------- Data traces（全部用 scatter 不用 scattergl，保证多轴兼容） -----------
+  const data = [];
+
+  // 黄金价（row1 = x, y）
+  data.push({
+    x: xs, y: goldYs, mode: 'lines', type: 'scatter',
+    name: '黄金价格 (USD/Oz)',
+    line: { color: '#c9a227', width: 1.15, shape: 'hv' },
+    xaxis: 'x', yaxis: 'y',
+    hovertemplate: '<b>%{x|%Y-%m-%d}</b><br>🥇 黄金 = <b>%{y:.2f}</b> USD/Oz<extra></extra>',
+  });
+  // 白银价（row2 = x2, y2）
+  data.push({
+    x: xs, y: silverYs, mode: 'lines', type: 'scatter',
+    name: '白银价格 (USD/Oz)',
+    line: { color: '#616161', width: 1.1, shape: 'hv' },
+    xaxis: 'x2', yaxis: 'y2',
+    hovertemplate: '<b>%{x|%Y-%m-%d}</b><br>🥈 白银 = <b>%{y:.3f}</b> USD/Oz<extra></extra>',
+  });
+  // 金银比（row3 = x3, y3）
+  data.push({
+    x: xs, y: ratioYs, mode: 'lines', type: 'scatter',
+    name: '金银比',
+    line: { color: '#8B0000', width: 1.2, shape: 'hv' },
+    xaxis: 'x3', yaxis: 'y3',
+    hovertemplate: '<b>%{x|%Y-%m-%d}</b><br>📊 金银比 = <b>%{y:.2f}</b><extra></extra>',
+  });
+
+  // 极值标记
+  if (minGDate) data.push({
+    x: [minGDate], y: [minGold], mode: 'markers', type: 'scatter',
+    name: `黄金最低 ${Number(minGold).toFixed(2)}`,
+    marker: { color: '#2E7D32', size: 9, symbol: 'triangle-up' },
+    xaxis: 'x', yaxis: 'y', showlegend: false,
+    hovertemplate: `<b>黄金历史最低</b><br>${minGDate}<br>%{y:.2f} USD<extra></extra>`,
+  });
+  if (maxGDate) data.push({
+    x: [maxGDate], y: [maxGold], mode: 'markers', type: 'scatter',
+    name: `黄金最高 ${Number(maxGold).toFixed(2)}`,
+    marker: { color: '#E65100', size: 9, symbol: 'triangle-down' },
+    xaxis: 'x', yaxis: 'y', showlegend: false,
+    hovertemplate: `<b>黄金历史最高</b><br>${maxGDate}<br>%{y:.2f} USD<extra></extra>`,
+  });
+  if (minSDate) data.push({
+    x: [minSDate], y: [minSilver], mode: 'markers', type: 'scatter',
+    name: `白银最低 ${Number(minSilver).toFixed(3)}`,
+    marker: { color: '#2E7D32', size: 9, symbol: 'triangle-up' },
+    xaxis: 'x2', yaxis: 'y2', showlegend: false,
+  });
+  if (maxSDate) data.push({
+    x: [maxSDate], y: [maxSilver], mode: 'markers', type: 'scatter',
+    name: `白银最高 ${Number(maxSilver).toFixed(3)}`,
+    marker: { color: '#E65100', size: 9, symbol: 'triangle-down' },
+    xaxis: 'x2', yaxis: 'y2', showlegend: false,
+  });
+  if (minRDate) data.push({
+    x: [minRDate], y: [minRatio], mode: 'markers', type: 'scatter',
+    name: `金银比最低 ${Number(minRatio).toFixed(2)}`,
+    marker: { color: '#2E7D32', size: 10, symbol: 'triangle-up' },
+    xaxis: 'x3', yaxis: 'y3', showlegend: true,
+    hovertemplate: `<b>金银比历史最低</b><br>${minRDate}<br>%{y:.2f}<extra></extra>`,
+  });
+  if (maxRDate) data.push({
+    x: [maxRDate], y: [maxRatio], mode: 'markers', type: 'scatter',
+    name: `金银比最高 ${Number(maxRatio).toFixed(2)}`,
+    marker: { color: '#E65100', size: 10, symbol: 'triangle-down' },
+    xaxis: 'x3', yaxis: 'y3', showlegend: true,
+    hovertemplate: `<b>金银比历史最高</b><br>${maxRDate}<br>%{y:.2f}<extra></extra>`,
+  });
+
+  // ----------- 装饰：竖线 + 阈值线 + 均值 -----------
+  // 1971 布雷顿森林（paper坐标，跨3图）
+  layout.shapes.push({
+    type: 'line', x0: '1971-08-15', x1: '1971-08-15',
+    y0: 0, y1: 1, yref: 'paper',
+    line: { color: '#2E7D32', width: 1.5, dash: 'dashdot' },
+  });
+  layout.annotations.push({
+    x: '1971-08-15', y: 0.985, yref: 'paper',
+    text: '1971-08-15 布雷顿森林体系结束',
+    showarrow: false, xanchor: 'left',
+    font: { color: '#2E7D32', size: 11 },
+    bgcolor: '#e8f5e9', opacity: 0.92,
+  });
+
+  // 金银比均值（y3）
+  if (stats && stats.ratio_mean != null) {
+    layout.shapes.push({
+      type: 'line', xref: 'paper', x0: 0, x1: 1,
+      y0: stats.ratio_mean, y1: stats.ratio_mean, yref: 'y3',
+      line: { color: '#1565C0', width: 1.2, dash: 'dash' },
+    });
+    layout.annotations.push({
+      x: 0.005, y: stats.ratio_mean, xref: 'paper', yref: 'y3',
+      text: `历史均值 ${Number(stats.ratio_mean).toFixed(2)}`,
+      showarrow: false, xanchor: 'left', yanchor: 'bottom',
+      font: { color: '#1565C0', size: 11 }, bgcolor: '#e3f2fd', opacity: 0.92,
+    });
+  }
+  // 80 上阈值
+  layout.shapes.push({
+    type: 'line', xref: 'paper', x0: 0, x1: 1,
+    y0: 80, y1: 80, yref: 'y3',
+    line: { color: '#c5221f', width: 1.0, dash: 'dot' },
+  });
+  layout.annotations.push({
+    x: 0.995, y: 80, xref: 'paper', yref: 'y3',
+    text: '> 80 阈值（抛金买银）',
+    showarrow: false, xanchor: 'right', yanchor: 'bottom',
+    font: { color: '#c5221f', size: 10.5 }, bgcolor: '#fce8e6', opacity: 0.9,
+  });
+  // 50 下阈值
+  layout.shapes.push({
+    type: 'line', xref: 'paper', x0: 0, x1: 1,
+    y0: 50, y1: 50, yref: 'y3',
+    line: { color: '#137333', width: 1.0, dash: 'dot' },
+  });
+  layout.annotations.push({
+    x: 0.995, y: 50, xref: 'paper', yref: 'y3',
+    text: '< 50 阈值（买金抛银）',
+    showarrow: false, xanchor: 'right', yanchor: 'top',
+    font: { color: '#137333', size: 10.5 }, bgcolor: '#e6f4ea', opacity: 0.9,
+  });
+  // 金银比最新值
+  if (stats && stats.to && stats.ratio_latest != null) {
+    layout.annotations.push({
+      x: stats.to, y: stats.ratio_latest, yref: 'y3',
+      text: `最新 ${Number(stats.ratio_latest).toFixed(2)}`,
+      showarrow: true, arrowhead: 2, ax: -60, ay: -28,
+      font: { color: '#C62828', size: 12 },
+      bgcolor: '#ffebee', opacity: 0.95,
+    });
+  }
+
+  return { data, layout };
+}
+
+/* ============================================================
+ * 主渲染流程
+ * ============================================================ */
+let chartBuilt = false;
+
+async function loadAndRender() {
+  const chartDiv = document.getElementById('charts');
+  chartDiv.innerHTML = '<div class="loading">正在从 /api/data 和 /api/stats 加载历史数据…</div>';
+
+  const [dataResp, statsResp] = await Promise.all([
+    fetch('/api/data').then(r => r.json()),
+    fetch('/api/stats').then(r => r.json()),
+  ]);
+
+  if (!dataResp.ok) {
+    chartDiv.innerHTML = '<div class="loading">加载失败：' + (dataResp.msg || '未知错误') + '</div>';
+    return;
+  }
+  const rows = dataResp.data || [];
+  if (!rows.length) {
+    chartDiv.innerHTML = '<div class="loading">暂无数据。请点"立即采集最新价"，或先运行 gold_silver_ratio.py 生成历史CSV再重启本服务。</div>';
+    return;
+  }
+
+  // 1. 建日期索引（用于当前卡片查值）
+  buildDateIndex(rows);
+
+  // 2. 构建三图 figure
+  const stats = statsResp.ok ? statsResp : null;
+  const fig = buildFigure(rows, stats);
+
+  // 3. 渲染前保存静态 annotations + shapes（布雷顿竖线/均值线/阈值线等）—— hover 时再追加 crosshair 动态元素
+  STATIC_ANNOTATIONS = Array.isArray(fig.layout.annotations) ? fig.layout.annotations.slice() : [];
+  STATIC_SHAPES      = Array.isArray(fig.layout.shapes)      ? fig.layout.shapes.slice()      : [];
+
+  // 3. 渲染（使用 newPlot 全量重建）
+  await Plotly.newPlot(chartDiv, fig.data, fig.layout, plotConfig);
+  chartBuilt = true;
+
+  // 4. 绑定 mousemove（抓光标真实像素位置 → 画自定义十字线）—— 彻底替代原生 spikes
+  let _rafPending = false;
+  chartDiv.addEventListener('mousemove', (e) => {
+    const rect = chartDiv.getBoundingClientRect();
+    const ox = e.clientX - rect.left;  // 相对 chartDiv 左上角的像素 X（包含 margin）
+    const oy = e.clientY - rect.top;   // 相对 chartDiv 左上角的像素 Y（包含 margin）
+    LAST_CURSOR = { offsetX: ox, offsetY: oy, w: rect.width, h: rect.height };
+    /* ⭐ 鼠标进入图表：显示右侧固定卡片 */
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard && cvCard.style.display === 'none') cvCard.style.display = 'block';
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => {
+      _rafPending = false;
+      drawManualCrosshair(ox, oy);
+    });
+  });
+  chartDiv.addEventListener('mouseleave', () => {
+    clearManualCrosshair();
+    /* ⭐ 鼠标离开图表：隐藏右侧固定卡片，清空内容重置提示态 */
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard) cvCard.style.display = 'none';
+    const cvEmpty = document.getElementById('cv-empty');
+    const cvBody  = document.getElementById('cv-body');
+    if (cvEmpty) cvEmpty.style.display = 'block';
+    if (cvBody)  cvBody.style.display  = 'none';
+  });
+  // 缩放/平移/重绘后，恢复上次光标位置的十字线
+  // ⚠️ 注意：drawManualCrosshair / clearManualCrosshair 内部的 Plotly.relayout() 会触发 plotly_relayout/plotly_afterplot，
+  //    这里必须先检查 _SUPPRESS_LAYOUT_EVENTS，否则 → plotly_relayout → drawManual → relayout → plotly_relayout → ...死循环卡死
+  chartDiv.on('plotly_afterplot', () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+  chartDiv.on('plotly_relayout',  () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+}
+
+/* ============================================================
+ * 操作按钮
+ * ============================================================ */
+async function manualRefresh() {
+  const btn = document.getElementById('btn-refresh');
+  btn.disabled = true;
+  btn.innerText = '采集中...';
+  try {
+    const r = await fetch('/api/refresh_now', { method: 'POST' }).then(x => x.json());
+    alert(r.msg || (r.ok ? '操作完成' : '失败'));
+    // 刷新状态栏
+    const latest = await fetch('/api/latest').then(x => x.json());
+    if (latest.ok && latest.data) {
+      const d = latest.data;
+      document.getElementById('s-date').innerText = d.date_k || '—';
+      document.getElementById('s-gold').innerText = d.gold_price != null ? Number(d.gold_price).toFixed(2) : '—';
+      document.getElementById('s-silver').innerText = d.silver_price != null ? Number(d.silver_price).toFixed(3) : '—';
+      document.getElementById('s-ratio').innerText = d.ratio != null ? Number(d.ratio).toFixed(2) : '—';
+    }
+    const total = await fetch('/api/stats').then(x => x.json());
+    if (total.ok) document.getElementById('s-total').innerText = total.total + ' 条';
+    await loadAndRender();
+  } finally {
+    btn.disabled = false;
+    btn.innerText = '🔄 立即采集最新价并入库';
+  }
+}
+
+document.getElementById('btn-refresh').addEventListener('click', manualRefresh);
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  if (!chartBuilt) return;
+  await Plotly.relayout('charts', {
+    'xaxis.autorange': true,
+    'xaxis2.autorange': true,
+    'xaxis3.autorange': true,
+    'yaxis.autorange': true,
+    'yaxis2.autorange': true,
+    'yaxis3.autorange': true,
+  });
+});
+
+window.addEventListener('DOMContentLoaded', loadAndRender);
+</script>
+
+</body>
+</html>

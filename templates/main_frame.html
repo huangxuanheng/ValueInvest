@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Value500 投资导航 · 数据图表</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    background: #fff;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ============== 顶部红色品牌栏（仿 value500） ============== */
+  .top-brand {
+    background: #c10000;
+    color: #fff;
+    padding: 16px 24px 12px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 2px solid #a50000;
+  }
+  .top-brand .logo {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .top-brand .logo .val { color: #fff7e0; }
+  .top-brand .logo .num { color: #fff; }
+  .top-brand .slogan {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #ffe0c7;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  }
+  .top-brand .brand-right {
+    font-size: 13px;
+    color: #ffd9a3;
+    letter-spacing: 0.5px;
+  }
+  .top-brand .brand-right a {
+    color: #fff;
+    text-decoration: none;
+    margin-left: 10px;
+  }
+  .top-brand .brand-right a:hover { text-decoration: underline; }
+
+  /* ============== 顶部二级导航（数据图表） ============== */
+  .top-nav {
+    background: #f1f1f1;
+    border-bottom: 1px solid #d5d5d5;
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
+  }
+  .top-nav a {
+    display: inline-block;
+    padding: 7px 16px 6px;
+    font-size: 14px;
+    color: #333;
+    text-decoration: none;
+    margin-right: 4px;
+    border-bottom: 2px solid transparent;
+  }
+  .top-nav a:hover { background: #e5e5e5; color: #000; }
+  .top-nav a.active {
+    background: #fff;
+    color: #c10000;
+    font-weight: 700;
+    border-bottom-color: #fff;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    box-shadow: 0 -1px 2px rgba(0,0,0,0.06) inset;
+  }
+  .top-nav a.hot-badge::after {
+    content: " HOT";
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: #e50012;
+    padding: 1px 4px;
+    margin-left: 4px;
+    border-radius: 2px;
+    vertical-align: 1px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ============== 主体：左菜单 + 右 iframe ============== */
+  .main-wrap {
+    flex: 1;
+    display: flex;
+    min-height: 0;   /* 解决 iframe 子元素高度溢出 */
+  }
+
+  /* --- 左侧菜单 --- */
+  .sidebar {
+    width: 240px;
+    background: #fafafa;
+    border-right: 1px solid #e5e5e5;
+    padding: 18px 0 24px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .sidebar .menu-group { margin-bottom: 22px; }
+  .sidebar .group-title {
+    display: flex;
+    align-items: center;
+    padding: 6px 16px 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #333;
+    cursor: pointer;
+    user-select: none;
+    border-left: 4px solid #c10000;
+    background: linear-gradient(90deg, #ffeaea, transparent 70%);
+    margin-bottom: 6px;
+  }
+  .sidebar .group-title.precious {
+    border-left-color: #c9a227;
+    background: linear-gradient(90deg, #fff8e1, transparent 70%);
+  }
+  .sidebar .group-title .arrow {
+    display: inline-block;
+    width: 14px;
+    margin-right: 4px;
+    transition: transform 0.2s;
+    transform-origin: center center;
+    color: #c10000;
+  }
+  .sidebar .group-title.precious .arrow { color: #c9a227; }
+  .sidebar .group-title.collapsed .arrow {
+    transform: rotate(-90deg);
+  }
+  .sidebar .submenu {
+    list-style: none;
+    padding: 4px 0 4px 6px;
+  }
+  .sidebar .group-title.collapsed + ul.submenu { display: none; }
+
+  .sidebar .submenu li { }
+  .sidebar .submenu li a {
+    display: flex;
+    align-items: center;
+    padding: 7px 16px 7px 22px;
+    font-size: 13.5px;
+    color: #0a4b8f;
+    text-decoration: none;
+    line-height: 1.45;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .sidebar .submenu li a:hover {
+    background: #f2f7ff;
+    color: #c10000;
+    border-left-color: #ffd79a;
+  }
+  .sidebar .submenu li a.active {
+    background: #fff;
+    color: #c10000;
+    font-weight: 700;
+    border-left-color: #c10000;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .sidebar .submenu li a::before {
+    content: "●";
+    color: #e50012;
+    font-size: 8px;
+    margin-right: 8px;
+    margin-top: 2px;
+  }
+
+  /* --- 右侧内容 --- */
+  .content {
+    flex: 1;
+    min-width: 0;      /* iframe 水平缩放 */
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+  }
+  .content-bar {
+    background: #fffaf0;
+    border-bottom: 1px dashed #f2dfbf;
+    padding: 7px 18px;
+    font-size: 12.5px;
+    color: #8a5a00;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .content-bar .crumbs { color: #8a5a00; }
+  .content-bar .crumbs b { color: #c10000; font-weight: 700; }
+  .content-bar .crumbs .group { color: #a36900; margin: 0 2px; }
+  .content-bar .time { color: #888; font-size: 12px; }
+  .content iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+    min-height: 0;
+    background: #f7f8fa;
+  }
+
+  /* --- 响应式：窄屏把侧边栏宽度收窄 --- */
+  @media (max-width: 900px) {
+    .sidebar { width: 200px; }
+  }
+  @media (max-width: 700px) {
+    .sidebar { position: absolute; left: 0; top: 0; z-index: 20; height: 100%; box-shadow: 2px 0 6px rgba(0,0,0,0.1); transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== 红色品牌顶栏 ===== -->
+<header class="top-brand">
+  <div>
+    <div class="logo"><span class="val">Value</span><span class="num">500</span> &nbsp;投资导航</div>
+    <div class="slogan">—— 价值投资者的眼睛</div>
+  </div>
+  <div class="brand-right">
+    <span>页面生成时间：{{ render_time }}</span>
+  </div>
+</header>
+
+<!-- ===== 顶部一级导航（数据图表 / 理财计算器 / 个股复投回测） ===== -->
+<nav class="top-nav">
+  <a href="/"
+     class="hot-badge {% if active_key != 'finance_calc' and active_key != 'reinvest_backtest' %}active{% endif %}"
+     data-top-nav="charts">数据图表</a>
+  <a href="{{ url_for('page_finance_calculator') }}"
+     class="{% if active_key == 'finance_calc' %}active{% endif %}"
+     data-top-nav="calc">理财计算器</a>
+  <a href="{{ url_for('page_reinvest_backtest') }}"
+     class="{% if active_key == 'reinvest_backtest' %}active{% endif %}"
+     data-top-nav="reinvest">个股复投回测</a>
+</nav>
+
+<!-- ===== 主体：左侧 + 右侧 ===== -->
+<div class="main-wrap">
+
+  <!-- 左侧菜单：循环渲染 MENU_GROUPS（热门数据 / 贵金属 / 货币与黄金） -->
+  <aside class="sidebar" id="sidebar">
+    {% for gi, (gid, gname, items) in enumerate(MENU_GROUPS) %}
+    <div class="menu-group">
+      <div class="group-title {% if gid == 'precious' %}precious{% endif %}"
+           id="grp-{{ gid }}"
+           data-gid="{{ gid }}">
+        <span class="arrow">▼</span>{{ gname }}
+      </div>
+      <ul class="submenu">
+        {% for mi, (key, title, raw_url) in enumerate(items) %}
+        <li>
+          <a href="{{ url_for('hot_menu', menu_key=key) }}"
+             data-raw="{{ raw_url }}"
+             data-key="{{ key }}"
+             data-group-idx="{{ gi }}"
+             data-menu-idx="{{ mi }}"
+             class="{% if gi == active_group_idx and mi == active_menu_idx %}active{% endif %}">
+            {{ title }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </aside>
+
+  <!-- 右侧 iframe 内容 -->
+  <section class="content">
+    <div class="content-bar">
+      <span class="crumbs">
+        当前位置：数据图表 &nbsp;/&nbsp; <span class="group">{{ active_group_name }}</span> &nbsp;/&nbsp; <b>{{ active_title }}</b>
+      </span>
+      <span class="time" id="now-time"></span>
+    </div>
+    <iframe id="main-iframe"
+            name="main-iframe"
+            src="{{ active_raw_url }}"
+            title="{{ active_title }}"
+            loading="lazy"
+            allow="fullscreen"></iframe>
+  </section>
+</div>
+
+
+<script>
+  /* =========================================================
+   * 侧边栏 & 多组一级菜单交互
+   *  1) 每个一级菜单可独立折叠/展开（含小三角），默认全部展开
+   *     · 活动项所在的组强制展开（避免用户自己折起来看不到当前页高亮）
+   *  2) 二级菜单点击：
+   *       · 左键 → 修改 iframe.src（不整页刷新，SPA 体验）
+   *       · 中键 / Ctrl+左键 / 右键 → 走正常 <a href> 行为（新标签打开）
+   *       · 更新激活态样式 & 面包屑标题（含所属组名）
+   *  3) 页面加载时：根据 URL menu_key 自动展开对应组 + 激活对应项
+   * ========================================================= */
+  const ACTIVE_KEY   = "{{ active_key }}";
+  const ACTIVE_GROUP = {{ active_group_idx }};
+
+  function $(sel, root = document) { return root.querySelector(sel); }
+  function $$(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+  // 1) 一级菜单折叠（多组独立）
+  const groupTitles = $$(".sidebar .group-title");
+  groupTitles.forEach(g => {
+    g.addEventListener("click", (e) => {
+      e.preventDefault();
+      // 切换折叠/展开
+      g.classList.toggle("collapsed");
+    });
+    // 默认全部展开；用户想收可自己点
+    g.classList.remove("collapsed");
+  });
+  // 活动项所在的组 —— 强制不折叠（兜底）
+  const activeGrp = document.getElementById("grp-" + "{{ MENU_GROUPS[active_group_idx][0] }}");
+  if (activeGrp) activeGrp.classList.remove("collapsed");
+
+  // 2) 二级菜单点击 → 切 iframe
+  const iframe = document.getElementById("main-iframe");
+  const crumbTitle = document.querySelector(".content-bar .crumbs b");
+  const crumbGroup = document.querySelector(".content-bar .crumbs .group");
+
+  function activateMenu(key) {
+    let matched = null;
+    $$(".sidebar .submenu a").forEach(a => {
+      const isActive = a.dataset.key === key;
+      a.classList.toggle("active", isActive);
+      if (isActive) matched = a;
+    });
+    if (matched) {
+      iframe.src = matched.dataset.raw;
+      const title = matched.textContent.trim();
+      crumbTitle.textContent = title;
+      document.title = "Value500 投资导航 · " + title;
+      // 从 data-group-idx 找所属组名
+      const gi = parseInt(matched.dataset.groupIdx, 10);
+      const groups = {{ MENU_GROUPS|safe if false else '[]' }};  // 不直接暴露，用下面的 DOM 反查
+      // 直接从 DOM 里取：同 .menu-group 下的 .group-title 文本
+      const gtitleEl = matched.closest(".menu-group").querySelector(".group-title");
+      if (gtitleEl && crumbGroup) {
+        crumbGroup.textContent = gtitleEl.textContent.replace(/^[ ▼▲\s]+/, "").trim();
+      }
+    }
+    // 浏览器历史：pushState 让前进后退可用
+    try {
+      const url = "/hot/" + encodeURIComponent(key);
+      if (location.pathname !== url) {
+        history.pushState({ key }, "", url);
+      }
+    } catch (e) {}
+  }
+
+  $$(".sidebar .submenu a").forEach(a => {
+    a.addEventListener("click", (e) => {
+      // 中键、CTRL/CMD 点击、右键 → 不拦截
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      activateMenu(a.dataset.key);
+    });
+  });
+
+  // 3) 浏览器前进/后退 → 按 state 激活对应菜单 & 切换 iframe
+  window.addEventListener("popstate", (e) => {
+    const key = (e.state && e.state.key) || location.pathname.replace(/^\/hot\//, "") || ACTIVE_KEY;
+    activateMenu(key);
+  });
+
+  // 4) 实时时间（右上角小条）
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function tickTime() {
+    const d = new Date();
+    const el = document.getElementById("now-time");
+    if (!el) return;
+    el.textContent = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  tickTime();
+  setInterval(tickTime, 1000);
+</script>
+
+</body>
+</html>
