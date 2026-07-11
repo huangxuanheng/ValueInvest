@@ -31,6 +31,8 @@ import datetime as dt
 from datetime import datetime, timedelta
 
 import pandas as pd
+import numpy as np
+import requests
 from flask import Flask, render_template, jsonify, request
 
 # ============================================================
@@ -126,11 +128,60 @@ from sqlalchemy import (
     create_engine, Column, Date, Float, String, PrimaryKeyConstraint, text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.types import TypeEngine
 
 engine = create_engine(DB_URL, echo=False, future=True,
                        connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+def _ensure_sqlite_columns():
+    """SQLite 专属：为 Base 下所有 ORM 表，对比 PRAGMA table_info 与 ORM 列定义，
+    对缺失的列执行 ALTER TABLE ... ADD COLUMN 补齐（所有新增列都是可空类型，
+    不会造成数据丢失）。
+    MySQL / PG 等其他方言：空操作，假设你使用正规迁移工具管理升级。"""
+    if engine.dialect.name != "sqlite":
+        return
+
+    def _sa_type_to_sql(t: TypeEngine) -> str:
+        # SQLite 类型亲和度宽松，按大类映射即可
+        s = str(t).upper()
+        if "FLOAT" in s or "DOUBLE" in s or "REAL" in s or "NUMERIC" in s:
+            return "FLOAT"
+        if "INT" in s or "BIGINT" in s:
+            return "INTEGER"
+        if "DATE" in s or "DATETIME" in s or "TIME" in s:
+            return "DATE"
+        if "BOOL" in s:
+            return "INTEGER"
+        if "BLOB" in s or "BINARY" in s:
+            return "BLOB"
+        return "TEXT"
+
+    with engine.connect() as conn:
+        trans = conn.begin()
+        try:
+            for mapper in Base.registry.mappers:
+                table = mapper.persist_selectable
+                tname = table.name
+                rows = conn.execute(text(f'PRAGMA table_info("{tname}")')).fetchall()
+                existing = {r[1].lower() for r in rows}  # 第 1 列 = 列名
+                for col in table.columns:
+                    if col.name.lower() in existing:
+                        continue
+                    sql_type = _sa_type_to_sql(col.type)
+                    ddl = f'ALTER TABLE "{tname}" ADD COLUMN "{col.name}" {sql_type}'
+                    try:
+                        conn.execute(text(ddl))
+                        print(f"[DB][迁移] 表 {tname} 新增列: {col.name} ({sql_type})")
+                    except Exception as ex:
+                        # ignore duplicate / already added on concurrent runs
+                        print(f"[DB][迁移] 忽略警告：{ddl} 失败: {ex}")
+            trans.commit()
+        except Exception:
+            trans.rollback()
+            raise
 
 
 class PreciousMetal(Base):
@@ -149,7 +200,7 @@ class PreciousMetal(Base):
 
 
 def init_db():
-    """初始化：建库（若MySQL）+ 建全部两张表"""
+    """初始化：建库（若MySQL）+ 建表 + SQLite 下自动补齐缺失列"""
     # SQLite 不需要 CREATE DATABASE
     if not DB_URL.startswith("sqlite"):
         try:
@@ -159,10 +210,17 @@ def init_db():
         except Exception:
             pass
     Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_columns()
     db_path = DB_URL.split('@')[-1] if '@' in DB_URL else DB_URL
     print(f"[DB] 已初始化，连接：{db_path}")
     print(f"     - 表 {TABLE_NAME}      (金银价)：记录数 = {count_rows()}")
     print(f"     - 表 {INDEX_TABLE} (指数估值)：记录数 = {index_count_rows()}")
+    try:
+        with SessionLocal() as _s:
+            _n = _s.execute(text(f'SELECT COUNT(*) FROM "{DIVIDEND_INDEX_TABLE}"')).scalar()
+            print(f"     - 表 {DIVIDEND_INDEX_TABLE} (红利指数估值)：记录数 = {_n}")
+    except Exception as _e:
+        print(f"     - 表 {DIVIDEND_INDEX_TABLE} (红利指数估值)：未就绪 - {_e}")
 
 
 def upsert_row(date_val: dt.date, gold: float | None, silver: float | None):
@@ -447,6 +505,84 @@ INDEX_META = {
                    "乐咕 stock_market_pe_lg：深证A股整体法市盈率(TTM)（2021年2月起已包含原中小板成分股）",
                    ("整体法PE(TTM · 深证指数·市场分类 = ∑总市值/∑净利润TTM)", "市净率(市场分类暂不单独提供)")),
 }
+
+# ============================================================
+# 2-quater-div. 红利指数元数据 & ORM 模型
+# ============================================================
+DIVIDEND_INDEX_TABLE = "dividend_index_daily"
+# 仅保留 2 只核心红利指数：(中文名, 乐咕 indexCode, 描述)
+DIVIDEND_INDEX_META = {
+    # idx_code        (中文名,             乐咕index_code,     指数简介)
+    "csi_dividend":  ("中证红利",       "000922.CSI",   "沪深A股中高股息率/分红连续稳定的100只股票，最主流红利宽基·市值加权"),
+    "sse_dividend":  ("上证红利",       "000015.SH",    "沪市50只高股息蓝筹·经典红利指数"),
+}
+DIVIDEND_INDEX_CODES = list(DIVIDEND_INDEX_META.keys())
+
+
+class DividendIndexValuation(Base):
+    """(date_k, idx_code) 联合主键，存储红利指数每日股息率 / 市盈率 / 市净率 估值数据。
+    字段来源：乐咕 legulegu.com /api/stockdata/index-basic 接口。
+    主口径（市值加权）：pe_ttm / pe_lyr / pb（也是图表默认绘制）。
+    辅助口径：等权 add_*、中位数 middle_*、以及股息率 dv_*（数据保留供参考）。
+    """
+    __tablename__ = DIVIDEND_INDEX_TABLE
+    date_k           = Column(Date, nullable=False, comment="交易日")
+    idx_code         = Column(String(20), nullable=False, comment="红利指数代码: csi_dividend 等")
+    close            = Column(Float, nullable=True, comment="指数收盘点位")
+    # ---- 股息率（市值加权）----
+    dv_ratio_lyr     = Column(Float, nullable=True, comment="静态股息率(%) - LYR = 近1年度")
+    dv_ttm           = Column(Float, nullable=True, comment="滚动股息率TTM(%) - 近 4 季度滚动分红")
+    add_dv_ratio     = Column(Float, nullable=True, comment="等权静态股息率(%)")
+    add_dv_ttm       = Column(Float, nullable=True, comment="等权滚动股息率TTM(%)")
+    dv_ratio_q       = Column(Float, nullable=True, comment="静态股息率 历史分位数(0-1)")
+    dv_ttm_q         = Column(Float, nullable=True, comment="滚动股息率TTM 历史分位数(0-1)")
+    # ---- 市盈率 + 市净率（图表默认绘制；市值加权 · 整体法）----
+    pe_ttm           = Column(Float, nullable=True, comment="滚动市盈率(TTM · 市值加权整体法)")
+    pe_lyr           = Column(Float, nullable=True, comment="静态市盈率(LYR · 市值加权整体法)")
+    pb               = Column(Float, nullable=True, comment="市净率(市值加权整体法)")
+    pe_ttm_q         = Column(Float, nullable=True, comment="滚动PE(TTM) 历史分位数(0-1)")
+    pe_lyr_q         = Column(Float, nullable=True, comment="静态PE(LYR) 历史分位数(0-1)")
+    pb_q             = Column(Float, nullable=True, comment="PB 历史分位数(0-1)")
+    # ---- 辅助口径（市盈率/市净率 · 等权 / 中位数）----
+    add_pe_ttm       = Column(Float, nullable=True, comment="等权滚动市盈率(TTM)")
+    add_pe_lyr       = Column(Float, nullable=True, comment="等权静态市盈率(LYR)")
+    add_pb           = Column(Float, nullable=True, comment="等权市净率")
+    middle_pe_ttm    = Column(Float, nullable=True, comment="中位数滚动市盈率(TTM)")
+    middle_pe_lyr    = Column(Float, nullable=True, comment="中位数静态市盈率(LYR)")
+    middle_pb        = Column(Float, nullable=True, comment="中位数市净率")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("date_k", "idx_code", name="pk_dividend_index_daily"),
+        {"comment": "A 股主流红利指数 股息率/PE/PB 估值历史（日度）"},
+    )
+
+    def to_dict(self):
+        return {
+            "date_k":         self.date_k.isoformat() if self.date_k else None,
+            "close":          float(self.close)          if self.close is not None else None,
+            # 股息率
+            "dv_ratio_lyr":   float(self.dv_ratio_lyr)   if self.dv_ratio_lyr is not None else None,
+            "dv_ttm":         float(self.dv_ttm)         if self.dv_ttm is not None else None,
+            "add_dv_ratio":   float(self.add_dv_ratio)   if self.add_dv_ratio is not None else None,
+            "add_dv_ttm":     float(self.add_dv_ttm)     if self.add_dv_ttm is not None else None,
+            "dv_ratio_q":     float(self.dv_ratio_q)     if self.dv_ratio_q is not None else None,
+            "dv_ttm_q":       float(self.dv_ttm_q)       if self.dv_ttm_q is not None else None,
+            # PE / PB（默认图表口径）
+            "pe_ttm":         float(self.pe_ttm)         if self.pe_ttm is not None else None,
+            "pe_lyr":         float(self.pe_lyr)         if self.pe_lyr is not None else None,
+            "pb":             float(self.pb)             if self.pb is not None else None,
+            "pe_ttm_q":       float(self.pe_ttm_q)       if self.pe_ttm_q is not None else None,
+            "pe_lyr_q":       float(self.pe_lyr_q)       if self.pe_lyr_q is not None else None,
+            "pb_q":           float(self.pb_q)           if self.pb_q is not None else None,
+            # 辅助：等权 / 中位数
+            "add_pe_ttm":     float(self.add_pe_ttm)     if self.add_pe_ttm is not None else None,
+            "add_pe_lyr":     float(self.add_pe_lyr)     if self.add_pe_lyr is not None else None,
+            "add_pb":         float(self.add_pb)         if self.add_pb is not None else None,
+            "middle_pe_ttm":  float(self.middle_pe_ttm)  if self.middle_pe_ttm is not None else None,
+            "middle_pe_lyr":  float(self.middle_pe_lyr)  if self.middle_pe_lyr is not None else None,
+            "middle_pb":      float(self.middle_pb)      if self.middle_pb is not None else None,
+        }
+
 # A股各板（市场分类）PE 代码
 MARKET_PE_META = {
     "sh_market":  ("上证指数 · 市场整体法",      "上证",  "上证A股整体法PE = ∑(收盘价×总股本)/∑(每股收益×总股本)"),
@@ -565,6 +701,147 @@ def index_count_rows(idx_code: str | None = None) -> int:
         return q.count()
 
 
+# ============= 红利指数：读写/计数/最新行 =============
+def upsert_bulk_dividend(rows: list[dict]):
+    """批量 upsert 红利指数估值/股息率/PE/PB 数据
+    rows 支持的字段（缺省的保持不变）：
+      date_k, idx_code, close,
+      dv_ratio_lyr, dv_ttm, add_dv_ratio, add_dv_ttm, dv_ratio_q, dv_ttm_q,
+      pe_ttm, pe_lyr, pb, pe_ttm_q, pe_lyr_q, pb_q,
+      add_pe_ttm, add_pe_lyr, add_pb, middle_pe_ttm, middle_pe_lyr, middle_pb
+    """
+    if not rows:
+        return 0
+    with SessionLocal() as s:
+        chg = 0
+        for r in rows:
+            pk = (r["date_k"], r["idx_code"])
+            row = s.get(DividendIndexValuation, pk)
+            # 所有可能需要 upsert 的列 (json_key, col_name)
+            col_pairs = [
+                ("close","close"),
+                # 股息率
+                ("dv_ratio_lyr","dv_ratio_lyr"), ("dv_ttm","dv_ttm"),
+                ("add_dv_ratio","add_dv_ratio"), ("add_dv_ttm","add_dv_ttm"),
+                ("dv_ratio_q","dv_ratio_q"), ("dv_ttm_q","dv_ttm_q"),
+                # PE/PB（主口径）
+                ("pe_ttm","pe_ttm"), ("pe_lyr","pe_lyr"), ("pb","pb"),
+                ("pe_ttm_q","pe_ttm_q"), ("pe_lyr_q","pe_lyr_q"), ("pb_q","pb_q"),
+                # 等权 / 中位数
+                ("add_pe_ttm","add_pe_ttm"), ("add_pe_lyr","add_pe_lyr"), ("add_pb","add_pb"),
+                ("middle_pe_ttm","middle_pe_ttm"), ("middle_pe_lyr","middle_pe_lyr"), ("middle_pb","middle_pb"),
+            ]
+            if row is None:
+                kwargs = {"date_k": r["date_k"], "idx_code": r["idx_code"]}
+                for k, col in col_pairs:
+                    v = _safe_float(r.get(k))
+                    if v is not None:
+                        kwargs[col] = v
+                row = DividendIndexValuation(**kwargs)
+                s.add(row)
+            else:
+                changed = False
+                for k, col in col_pairs:
+                    v = _safe_float(r.get(k))
+                    if v is not None and getattr(row, col) != v:
+                        setattr(row, col, v)
+                        changed = True
+                if changed:
+                    chg += 1
+        s.commit()
+        return chg
+
+
+def read_dividend_index_data(idx_code: str) -> list[dict]:
+    if idx_code not in DIVIDEND_INDEX_META:
+        return []
+    with SessionLocal() as s:
+        rows = (s.query(DividendIndexValuation)
+                 .filter(DividendIndexValuation.idx_code == idx_code)
+                 .order_by(DividendIndexValuation.date_k)
+                 .all())
+        return [r.to_dict() for r in rows]
+
+
+def dividend_index_latest_row(idx_code: str) -> dict | None:
+    if idx_code not in DIVIDEND_INDEX_META:
+        return None
+    with SessionLocal() as s:
+        r = (s.query(DividendIndexValuation)
+              .filter(DividendIndexValuation.idx_code == idx_code)
+              .order_by(DividendIndexValuation.date_k.desc())
+              .first())
+        return r.to_dict() if r else None
+
+
+def dividend_index_count(idx_code: str | None = None) -> int:
+    with SessionLocal() as s:
+        q = s.query(DividendIndexValuation)
+        if idx_code:
+            q = q.filter(DividendIndexValuation.idx_code == idx_code)
+        return q.count()
+
+
+def _is_div_index_stale(idx_code: str) -> tuple:
+    """红利指数是否过期：比预期最新交易日少就算过期"""
+    expected = _expected_latest_trade_date()
+    lr = dividend_index_latest_row(idx_code)
+    if lr is None:
+        return True, "库空无数据"
+    latest = lr["date_k"]
+    if isinstance(latest, str):
+        latest = dt.date.fromisoformat(latest)
+    if latest < expected:
+        return True, f"库最新 {latest} < 预期 {expected}"
+    return False, f"库最新 {latest} 已是最新"
+
+
+_DIV_REFRESH_STATE: dict = {}
+_DIV_REFRESH_LOCK = threading.Lock()
+_DIV_REFRESH_MIN_SEC = 30 * 60
+
+
+def _div_refresh_now(idx_code: str) -> str:
+    """【阻塞】抓 1 个红利指数 → upsert 入库。返回摘要字符串。"""
+    try:
+        rows = _fetch_one_dividend_index(idx_code)
+    except Exception as e:
+        return f"{idx_code} 抓取异常 {type(e).__name__}: {str(e)[:140]}"
+    if rows:
+        chg = upsert_bulk_dividend(rows)
+        return f"{idx_code} 写入{len(rows)}行，更新{chg}行；最新日期={rows[-1]['date_k']}"
+    return f"{idx_code} 未抓到任何有效数据"
+
+
+def _trigger_bg_div_refresh_if_stale(idx_code: str, caller: str = "api") -> tuple:
+    """不阻塞：若红利指数数据过期 → 起 daemon 线程后台补采；30 分钟节流 + 同指数并发锁。"""
+    stale, note = _is_div_index_stale(idx_code)
+    if not stale:
+        return False, note
+    now_ts = time.time()
+    with _DIV_REFRESH_LOCK:
+        last = _DIV_REFRESH_STATE.get(idx_code, 0)
+        if now_ts - last < _DIV_REFRESH_MIN_SEC:
+            return False, f"{idx_code} 30分钟内已触发过刷新，跳过"
+        _DIV_REFRESH_STATE[idx_code] = now_ts
+
+    def _worker(code):
+        print(f"[dividend-bg][{caller}] 后台刷新 {code}...")
+        try:
+            _div_refresh_now(code)
+            print(f"[dividend-bg][{caller}] {code} 刷新完成 ✓")
+        except Exception as ex:
+            print(f"[dividend-bg][{caller}] {code} 刷新异常：{type(ex).__name__}: {ex}")
+
+    t = threading.Thread(
+        target=_worker, args=(idx_code,),
+        name=f"bg_div_refresh_{idx_code}",
+        daemon=True,
+    )
+    t.start()
+    return True, note + "（后台刷新中）"
+
+
 # ============================================================
 # 2-ter. 按需自动增量刷新（每次打开页面 → 后台补抓最新交易日）
 # ============================================================
@@ -681,6 +958,198 @@ def _trigger_bg_refresh_if_stale(idx_code: str, caller: str = "api") -> tuple:
 # ============================================================
 # 2-quater. 指数估值抓取（akshare 乐咕 / stock_a_*）+ 冷启动
 # ============================================================
+# ---- 红利指数：乐咕 index-basic 接口抓取（单指数单次接口） ----
+# 鉴权方案：与 akshare stock_index_pe_lg 保持一致：
+#   1. Session GET 一个公开页面获取 cookies + <meta name="_csrf"> 中的 X-CSRF-Token
+#   2. py_mini_racer 执行一段 JS (hex 函数)，输入当天日期字符串 → token
+#   3. GET /api/stockdata/index-basic?token=X&indexCode=Y 带 cookies + X-CSRF-Token
+import importlib as _importlib
+import py_mini_racer as _pmr
+from bs4 import BeautifulSoup as _BS
+
+_LEG_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36",
+}
+
+def _leg_fetch_csrf(url_for_csrf: str) -> dict:
+    """自建的安全版 get_cookie_csrf：不会因为 csrf_tag=None 崩溃，session 独立隔离。"""
+    sess = requests.Session()
+    sess.headers.update(_LEG_HEADERS)
+    try:
+        r = sess.get(url_for_csrf, timeout=20)
+    except Exception:
+        return {"cookies": None, "headers": _LEG_HEADERS.copy()}
+    csrf_token = None
+    try:
+        soup = _BS(r.text, features="lxml")
+        csrf_tag = soup.find(name="meta", attrs={"name": "_csrf"})
+        if csrf_tag is not None and hasattr(csrf_tag, "attrs"):
+            csrf_token = csrf_tag.attrs.get("content")
+    except Exception:
+        csrf_token = None
+    h = _LEG_HEADERS.copy()
+    if csrf_token:
+        h.update({"X-CSRF-Token": csrf_token})
+    return {"cookies": r.cookies, "headers": h}
+
+# 从 akshare stock_a_pe_and_pb 里拿 hash_code（9410 字符 JS 代码：含 hex/utf-8 编解码函数）
+def _load_lg_hash_and_init_vm():
+    try:
+        mod_pe_pb = _importlib.import_module("akshare.stock_feature.stock_a_pe_and_pb")
+        hc = getattr(mod_pe_pb, "hash_code", None)
+        if not hc:
+            return None
+        vm = _pmr.MiniRacer()
+        vm.eval(hc)
+        return vm
+    except Exception:
+        return None
+
+_LEG_JS_VM = _load_lg_hash_and_init_vm()
+
+def _leg_gen_token() -> str:
+    """生成当天 hex token；失败时兜底返回 MD5(YYYY-MM-DD)。"""
+    if _LEG_JS_VM is not None:
+        try:
+            return _LEG_JS_VM.call("hex", datetime.now().date().isoformat()).lower()
+        except Exception:
+            pass
+    # Fallback: akshare stock_a_gxl_lg 方案 (MD5(date))
+    from hashlib import md5 as _md5
+    o = _md5()
+    o.update(datetime.now().date().isoformat().encode("utf-8"))
+    return o.hexdigest()
+
+
+def _fetch_one_dividend_index(idx_code: str) -> list[dict]:
+    """抓取 1 个红利指数的 PE(TTM/LYR) / PB / 股息率 历史数据。
+    复用 akshare stock_index_pe_lg 的鉴权/API 方案，数据来自乐咕 /api/stockdata/index-basic。
+
+    解析策略：
+      - 真实数据行：包含 `date` + `close` → 正常交易日 → 存入
+      - 末端汇总行（无 date/close，有 *Quantile）：用于对"当前最新值"回填 乐咕官方计算的历史分位
+    返回 list[dict]，符合 upsert_bulk_dividend 的字段规范。
+    """
+    import time as _time
+    if idx_code not in DIVIDEND_INDEX_META:
+        return []
+    name, legu_code, _desc = DIVIDEND_INDEX_META[idx_code]
+    print(f"  [{idx_code}({name})] 正在抓取红利指数估值(PE/PB/股息率): leguCode={legu_code} ...")
+
+    # ---- 1. 生成 token + CSRF 会话 ----
+    token = _leg_gen_token()
+    csrf_kw = _leg_fetch_csrf("https://legulegu.com/stockdata/sz50-ttm-lyr")
+
+    # ---- 2. 调用 API ----
+    api_url = "https://legulegu.com/api/stockdata/index-basic"
+    params = {"token": token, "indexCode": legu_code}
+    last_err = None
+    for _try in range(2):
+        try:
+            r = requests.get(api_url, params=params, timeout=30, **csrf_kw)
+            if r.status_code == 200 and r.content:
+                break
+            last_err = f"HTTP {r.status_code} 空内容"
+            csrf_kw = _leg_fetch_csrf("https://legulegu.com/stockdata/shanghaiPE")
+            _time.sleep(0.8)
+        except Exception as _ex:
+            last_err = f"{type(_ex).__name__}: {_ex}"
+            csrf_kw = _leg_fetch_csrf("https://legulegu.com/stockdata/shanghaiPE")
+            _time.sleep(1.0)
+    else:
+        raise RuntimeError(f"乐咕 index-basic 接口连续失败（{idx_code}）：{last_err}")
+    j = r.json()
+    raw_data = j.get("data") or []
+    print(f"    ↳ 原始行数 {len(raw_data)} 行")
+
+    # ---- 3. 分离：真实数据行 vs 末端 Quantile 汇总行 ----
+    rows = []
+    quantile_row = None  # 最后一个含 ttmPeQuantile 但不含 date 的汇总行
+    for d in raw_data:
+        td = d.get("date")
+        close = d.get("close")
+        if td and close is not None:
+            if isinstance(td, str):
+                date_str = td[0:10]
+            else:
+                import pandas as _pd
+                date_str = _pd.Timestamp(td).strftime("%Y-%m-%d")
+            rows.append({
+                "date_k":        dt.date.fromisoformat(date_str),
+                "idx_code":      idx_code,
+                "close":         _safe_float(close),
+                # 股息率（市值加权）
+                "dv_ratio_lyr":  _safe_float(d.get("dvRatio")),
+                "dv_ttm":        _safe_float(d.get("dvTtm")),
+                "add_dv_ratio":  _safe_float(d.get("addDvRatio")),
+                "add_dv_ttm":    _safe_float(d.get("addDvTtm")),
+                # PE / PB（市值加权 · 整体法）
+                "pe_ttm":        _safe_float(d.get("ttmPe")),
+                "pe_lyr":        _safe_float(d.get("lyrPe")),
+                "pb":            _safe_float(d.get("pb")),
+                # 等权 PE/PB
+                "add_pe_ttm":    _safe_float(d.get("addTtmPe")),
+                "add_pe_lyr":    _safe_float(d.get("addLyrPe")),
+                "add_pb":        _safe_float(d.get("addPb")),
+                # 中位数 PE/PB
+                "middle_pe_ttm": _safe_float(d.get("middleTtmPe")),
+                "middle_pe_lyr": _safe_float(d.get("middleLyrPe")),
+                "middle_pb":     _safe_float(d.get("middlePb")),
+                # 分位先占位（后面统一自算 + 如果最后有 Quantile 汇总行则覆盖最新一天）
+                "dv_ratio_q":    None,
+                "dv_ttm_q":      None,
+                "pe_ttm_q":      None,
+                "pe_lyr_q":      None,
+                "pb_q":          None,
+            })
+        elif (d.get("ttmPeQuantile") is not None) or (d.get("dvTtmQuantile") is not None):
+            # 末端 Quantile 汇总行：只对"最新值"有效，拿到后回填给最后一行
+            quantile_row = d
+    rows.sort(key=lambda r: r["date_k"])
+
+    # ---- 4. 历史分位自算（覆盖 ≥30 点，全部行生效）----
+    def _arr_and_pct(field_key):
+        arr = np.array([r[field_key] for r in rows if r[field_key] is not None], dtype=float)
+        if len(arr) < 30:
+            return arr, None
+        def _pct(v):
+            if v is None: return None
+            return float((arr <= float(v)).sum() / len(arr))
+        return arr, _pct
+    dvttm_arr,   dvttm_pct_fn   = _arr_and_pct("dv_ttm")
+    dvr_arr,     dvr_pct_fn     = _arr_and_pct("dv_ratio_lyr")
+    pettm_arr,   pettm_pct_fn   = _arr_and_pct("pe_ttm")
+    pelyr_arr,   pelyr_pct_fn   = _arr_and_pct("pe_lyr")
+    pb_arr,      pb_pct_fn      = _arr_and_pct("pb")
+    for r in rows:
+        if dvttm_pct_fn:   r["dv_ttm_q"]    = dvttm_pct_fn(r["dv_ttm"])
+        if dvr_pct_fn:     r["dv_ratio_q"]  = dvr_pct_fn(r["dv_ratio_lyr"])
+        if pettm_pct_fn:   r["pe_ttm_q"]    = pettm_pct_fn(r["pe_ttm"])
+        if pelyr_pct_fn:   r["pe_lyr_q"]    = pelyr_pct_fn(r["pe_lyr"])
+        if pb_pct_fn:      r["pb_q"]        = pb_pct_fn(r["pb"])
+
+    # ---- 5. 如果有乐咕官方的末端 Quantile 行 → 用官方分位覆盖最后一行（更权威） ----
+    if quantile_row is not None and rows:
+        last = rows[-1]
+        q_mapping = [
+            ("ttmPeQuantile",    "pe_ttm_q"),
+            ("lyrPeQuantile",    "pe_lyr_q"),
+            ("pbQuantile",       "pb_q"),
+            ("dvTtmQuantile",    "dv_ttm_q"),
+            ("dvRatioQuantile",  "dv_ratio_q"),
+        ]
+        for api_k, local_k in q_mapping:
+            v = _safe_float(quantile_row.get(api_k))
+            if v is not None:
+                last[local_k] = v
+
+    _time.sleep(0.6)
+    if rows:
+        print(f"    ↳ ✓ {len(rows)} 行，区间 {rows[0]['date_k']} ~ {rows[-1]['date_k']}"
+              f"；最新 PE(TTM)={rows[-1]['pe_ttm']}, PB={rows[-1]['pb']}, DV(TTM)={rows[-1]['dv_ttm']}%")
+    return rows
+
+
 def _fetch_one_lg_index(idx_code: str, symbol: str) -> list[dict]:
     """抓乐咕一个指数的 PE + PB 并合并。
     根据用户明确要求：【整体法滚动PE-TTM = ∑(总市值) / ∑(滚动净利润)】
@@ -1317,6 +1786,7 @@ MENU_GROUPS = [
             ("sz50",         "上证50估值",        "/chart/sz50_raw"),
             ("sh_market",    "上证指数估值",      "/chart/sh_market_raw"),
             ("sz_market",    "深证指数估值",      "/chart/sz_market_raw"),
+            ("dividend_indices_valuation", "红利指数估值", "/chart/dividend_indices_valuation_raw"),
         ],
     ),
     (
@@ -1329,6 +1799,7 @@ MENU_GROUPS = [
         "tools", "工具", [
             ("finance_calc",     "理财计算器",       "/chart/finance_calculator_raw"),
             ("reinvest_backtest","个股复投回测",     "/chart/reinvest_backtest_raw"),
+            ("undervalue_backtest","个股低估回测",   "/chart/undervalue_backtest_raw"),
         ],
     ),
 ]
@@ -1388,12 +1859,16 @@ def page_sz50():          return _render_frame("sz50")
 def page_sh_market():     return _render_frame("sh_market")
 @app.route("/chart/sz_market")
 def page_sz_market():     return _render_frame("sz_market")
+@app.route("/chart/dividend_indices_valuation")
+def page_dividend_indices_valuation(): return _render_frame("dividend_indices_valuation")
 @app.route("/chart/usa_money_gold")
 def page_usa_money_gold(): return _render_frame("usa_money_gold")
 @app.route("/chart/finance_calculator")
 def page_finance_calculator(): return _render_frame("finance_calc")
 @app.route("/chart/reinvest_backtest")
 def page_reinvest_backtest(): return _render_frame("reinvest_backtest")
+@app.route("/chart/undervalue_backtest")
+def page_undervalue_backtest(): return _render_frame("undervalue_backtest")
 
 
 # ------- 2. 右侧内容页（raw，嵌入 iframe 的独立页面）--------
@@ -1406,6 +1881,11 @@ def finance_calculator_raw():
 def reinvest_backtest_raw():
     """个股分红复投回测独立页（表单输入 + 汇总/明细展示）"""
     return render_template("reinvest_backtest_raw.html")
+
+@app.route("/chart/undervalue_backtest_raw")
+def undervalue_backtest_raw():
+    """个股低估回测独立页（深证PE择时+个股PE阈值筛选+分红复投+高PE卖出）"""
+    return render_template("undervalue_backtest_raw.html")
 
 @app.route("/chart/gold_silver_raw")
 def gold_silver_raw():
@@ -1543,6 +2023,80 @@ def raw_sz_market():
         api_url="/api/sz_market_data",
         idx_code="sz_market",
     )
+
+
+# ---------------- 红利指数估值 双指数市盈率/市净率折线对比图 ----------------
+@app.route("/chart/dividend_indices_valuation_raw")
+def raw_dividend_indices_valuation():
+    """中证红利 / 上证红利：市盈率(TTM · 市值加权整体法)为主的多折线对比图。
+    切换口径可查看 静态PE(LYR) / PB / 等权PE / 股息率 等。"""
+    latest_map: dict[str, dict] = {}
+    for ic in DIVIDEND_INDEX_CODES:
+        lr = dividend_index_latest_row(ic)
+        if lr:
+            latest_map[ic] = lr
+    return render_template(
+        "dividend_indices_valuation_raw.html",
+        page_title="红利指数估值 · 市盈率历史走势（中证红利 vs 上证红利）",
+        page_subtitle="主图指标：滚动市盈率 PE(TTM · 市值加权整体法 = ∑总市值/∑净利润TTM)。股息率字段保留供切换参考。",
+        page_data_source="乐咕 index-basic 接口（legulegu.com）：中证红利(000922.CSI) + 上证红利(000015.SH) 每交易日 PE/PB/股息率",
+        render_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        DATA_API="/api/dividend_indices_data",
+        DIVIDEND_INDEX_META=DIVIDEND_INDEX_META,
+        DIVIDEND_INDEX_CODES=DIVIDEND_INDEX_CODES,
+        latest_map=latest_map,
+    )
+
+
+@app.route("/api/dividend_indices_data")
+def api_dividend_indices_data():
+    """红利指数：PE(TTM/LYR) / PB / 股息率 + 收盘点位 + 历史分位；过期自动后台补采。
+    前端默认以 pe_ttm 作为主绘制序列。"""
+    refresh_status = {}
+    for ic in DIVIDEND_INDEX_CODES:
+        refreshed, note = _trigger_bg_div_refresh_if_stale(ic, caller="dividend_api")
+        refresh_status[ic] = {"refreshed_bg": refreshed, "note": note}
+    result_series: dict[str, dict] = {}
+    for ic in DIVIDEND_INDEX_CODES:
+        rows = read_dividend_index_data(ic)
+        result_series[ic] = {
+            # 时间轴 + 收盘
+            "date":         [r["date_k"]         for r in rows],
+            "close":        [r["close"]          for r in rows],
+            # 主绘制口径：PE(TTM/LYR) / PB（市值加权）
+            "pe_ttm":       [r["pe_ttm"]         for r in rows],
+            "pe_lyr":       [r["pe_lyr"]         for r in rows],
+            "pb":           [r["pb"]             for r in rows],
+            # 主绘制分位
+            "pe_ttm_q":     [r["pe_ttm_q"]       for r in rows],
+            "pe_lyr_q":     [r["pe_lyr_q"]       for r in rows],
+            "pb_q":         [r["pb_q"]           for r in rows],
+            # 股息率（保留供参考/切换）
+            "dv_ttm":       [r["dv_ttm"]         for r in rows],
+            "dv_ratio_lyr": [r["dv_ratio_lyr"]   for r in rows],
+            "dv_ttm_q":     [r["dv_ttm_q"]       for r in rows],
+            "dv_ratio_q":   [r["dv_ratio_q"]     for r in rows],
+            # 辅助：等权 / 中位数
+            "add_pe_ttm":   [r["add_pe_ttm"]     for r in rows],
+            "add_pe_lyr":   [r["add_pe_lyr"]     for r in rows],
+            "add_pb":       [r["add_pb"]         for r in rows],
+            "middle_pe_ttm":[r["middle_pe_ttm"]  for r in rows],
+            "middle_pe_lyr":[r["middle_pe_lyr"]  for r in rows],
+            "middle_pb":    [r["middle_pb"]      for r in rows],
+        }
+    return jsonify({
+        "codes": DIVIDEND_INDEX_CODES,
+        "meta": {
+            ic: {
+                "name":       DIVIDEND_INDEX_META[ic][0],
+                "legu_code":  DIVIDEND_INDEX_META[ic][1],
+                "desc":       DIVIDEND_INDEX_META[ic][2],
+            } for ic in DIVIDEND_INDEX_CODES
+        },
+        "series": result_series,
+        "latest": {ic: dividend_index_latest_row(ic) for ic in DIVIDEND_INDEX_CODES},
+        "refresh_status": refresh_status,
+    })
 
 
 @app.route("/api/data")
@@ -2117,6 +2671,25 @@ def _ri_safe_float(x, default=0.0):
     except Exception:
         return default
 
+def _ri_safe_json_num(x, digits=None):
+    """用于JSON序列化：把 None/NaN/pd.NA → None（合法JSON null），非空数可选round"""
+    if x is None:
+        return None
+    try:
+        if pd.isna(x):
+            return None
+    except Exception:
+        pass
+    try:
+        v = float(x)
+        if v != v:  # float('nan') 自比较不等
+            return None
+        if digits is not None:
+            v = round(v, digits)
+        return v
+    except Exception:
+        return None
+
 def _ri_floor_100(n: float) -> int:
     """向下取 100 的整数倍（A 股买入必须 100 股整数倍）"""
     return int(n // 100) * 100
@@ -2650,6 +3223,1078 @@ def api_reinvest_backtest():
             return jsonify({"ok": False, "msg": "参数缺少：symbol / buy_date / principal 均必传"}), 400
         principal = float(p_str)
         res = _backtest_reinvest(sym, bd, principal)
+        return jsonify(res)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}",
+                        "trace": traceback.format_exc(limit=4)}), 500
+
+
+# ============================================================
+# 4-tris. 个股低估回测 (深证PE择时 + 个股PE阈值 + 分红复投)
+# ============================================================
+def _uv_load_shenzhen_pe_history():
+    """从本地DB 读取深证指数市场分类整体法 PE-TTM 历史（指数代码 sz_market）。
+    返回 pandas Series (index=Timestamp date, value=pe_ttm)。按日期升序。"""
+    rows = read_index_data("sz_market")
+    if not rows:
+        return pd.Series(dtype="float64")
+    df = pd.DataFrame(rows)
+    df["date_k"] = pd.to_datetime(df["date_k"])
+    df = df.dropna(subset=["pe_ttm"]).sort_values("date_k").set_index("date_k")
+    return df["pe_ttm"].astype("float64")
+
+
+
+def _uv_find_buy_date(sz_pe_hist: pd.Series, div_yield_hist: pd.Series,
+                      buy_sz_pe_threshold, buy_div_yield_threshold):
+    """找「首次买入日期」（V4：仅支持 深证PE + 股息率 二维组合，已移除个股PE）
+
+    买入条件（与主循环 _check_buy_ok 保持一致）：
+      设 szB=buy_sz_pe_threshold 启用；divB=buy_div_yield_threshold 启用
+           C_sz  = 深证PE <= buy_sz_pe_threshold
+           C_div = 当日股息率% > buy_div_yield_threshold
+      ┌───────────────────────┬───────────────────────────┐
+      │ 条件组合               │ 触发公式                  │
+      ├───────────────────────┼───────────────────────────┤
+      │ szB=1 且 divB=1        │ C_sz AND C_div            │
+      │ szB=1 且 divB=0        │ C_sz                      │
+      │ szB=0 且 divB=1        │ C_div                     │
+      └───────────────────────┴───────────────────────────┘
+    选日期策略：从距离今天最近的合格日期往前遍历，找到第1个满足条件的日期即确定买入日。
+    返回 (buy_date Timestamp or None, 跳过计数 int, 最终筛选出的原因 str)"""
+
+    szB = (buy_sz_pe_threshold is not None)
+    divB = (buy_div_yield_threshold is not None)
+
+    if not szB and not divB:
+        return None, 0, "自动择时需要至少启用深证PE或买入股息率阈值之一，或改为填写「买入日期」手动指定"
+
+    if szB and sz_pe_hist is not None and len(sz_pe_hist) > 0:
+        candidate_dates = sz_pe_hist[sz_pe_hist <= buy_sz_pe_threshold].sort_index(ascending=False)
+    else:
+        idx_pool = pd.DatetimeIndex([])
+        if szB and sz_pe_hist is not None and isinstance(sz_pe_hist.index, pd.DatetimeIndex):
+            idx_pool = idx_pool.union(sz_pe_hist.index)
+        if divB and div_yield_hist is not None and isinstance(div_yield_hist.index, pd.DatetimeIndex):
+            idx_pool = idx_pool.union(div_yield_hist.index)
+        if len(idx_pool) == 0:
+            return None, 0, "无可用日期索引（深证PE/股息率均为空），请改为填写「买入日期」手动指定"
+        candidate_dates = pd.Series(0.0, index=idx_pool).sort_index(ascending=False)
+
+    if len(candidate_dates) == 0:
+        return None, 0, (f"深证指数历史中从未出现过PE <= {buy_sz_pe_threshold:.2f} 的日期" if szB
+                         else "没有可用的候选日期（请填写自定义买入日）")
+
+    skip_cnt = 0
+    for d in candidate_dates.index:
+        sz_pe_v = None
+        try:
+            if sz_pe_hist is not None and len(sz_pe_hist) > 0 and isinstance(sz_pe_hist.index, pd.DatetimeIndex):
+                if d in sz_pe_hist.index:
+                    sz_pe_v = float(sz_pe_hist.loc[d])
+                else:
+                    near = sz_pe_hist.index[sz_pe_hist.index <= d]
+                    if len(near) > 0:
+                        sz_pe_v = float(sz_pe_hist.loc[near[-1]])
+        except Exception:
+            sz_pe_v = None
+        div_y_v = None
+        try:
+            if divB and div_yield_hist is not None and isinstance(div_yield_hist.index, pd.DatetimeIndex):
+                if d in div_yield_hist.index and pd.notna(div_yield_hist.loc[d]):
+                    div_y_v = float(div_yield_hist.loc[d])
+                else:
+                    near = div_yield_hist.index[div_yield_hist.index <= d]
+                    if len(near) > 0:
+                        div_y_v = float(div_yield_hist.loc[near[-1]])
+        except Exception:
+            div_y_v = None
+
+        C_sz  = (sz_pe_v is not None) and (sz_pe_v <= buy_sz_pe_threshold) if szB else True
+        C_div = (div_y_v is not None) and (div_y_v > buy_div_yield_threshold) if divB else False
+
+        passed = False
+        if szB and divB:
+            passed = bool(C_sz and C_div)
+        elif szB:
+            passed = bool(C_sz)
+        else:
+            passed = bool(C_div)
+
+        if passed:
+            parts = []
+            if szB: parts.append(f"深证PE({sz_pe_v:.2f})<={buy_sz_pe_threshold:.2f}" if sz_pe_v is not None else f"深证PE<={buy_sz_pe_threshold:.2f}")
+            if divB: parts.append(f"股息率({div_y_v:.2f}%)>{buy_div_yield_threshold:.2f}%" if div_y_v is not None else f"股息率>{buy_div_yield_threshold:.2f}%")
+            return d, skip_cnt, "确定为买入日 · " + " · ".join(parts)
+        skip_cnt += 1
+        if skip_cnt > 3000:
+            break
+
+    fail_parts = []
+    if szB: fail_parts.append(f"深证PE <= {buy_sz_pe_threshold:.2f}")
+    if divB: fail_parts.append(f"股息率 > {buy_div_yield_threshold:.2f}%")
+    return None, skip_cnt, f"遍历了 {skip_cnt} 个候选日期，但未找到同时满足条件：{' AND '.join(fail_parts)}。建议放宽阈值或改为手动指定买入日期"
+
+
+def _derive_report_period_end(ex_d, min_days_lag: int = 40) -> pd.Timestamp:
+    """
+    根据「除权除息日 ex_date」推导该分红对应的 报告期期末日 report_period_end。
+    核心规则：分红一定发生在「报告期结束 + 一段时间（公告/股东大会/登记）」之后。
+    因此我们取 距离 ex_date 最近、且距离 ex_date 至少有 min_days_lag 天 滞后的 季度末（3/31、6/30、9/30、12/31）。
+    该算法无需硬编码月份分支，同时天然兼容 A 股 年报/中报 / Q1 / Q3 四种分红场景（2024 年新规后季度分红逐渐普及）。
+
+    例：
+      ex=2024-04-26 (双汇 2023 年度):
+        2024-03-31 → 距 04-26 仅 26 天（<40，太短，不可能是 Q1 分红）✗
+        2023-12-31 → 距 04-26 有 117 天（≥40）✓  → report_period_end = 2023-12-31  ✓
+      ex=2023-09-11 (双汇 2023 中报):
+        2023-09-30 → 未来（-19 天）✗
+        2023-06-30 → 73 天 ✓                  → report_period_end = 2023-06-30  ✓
+      ex=2024-05-10 (某股 2024 Q1):
+        2024-03-31 → 40 天 ✓                  → report_period_end = 2024-03-31  ✓
+      ex=2024-11-20 (某股 2024 Q3):
+        2024-09-30 → 51 天 ✓                  → report_period_end = 2024-09-30  ✓
+    """
+    ex_norm = pd.Timestamp(ex_d).normalize()
+    candidates = []
+    y = ex_norm.year
+    for yy in (y + 1, y, y - 1, y - 2):
+        for (mm, dd) in ((12, 31), (9, 30), (6, 30), (3, 31)):
+            try:
+                candidates.append(pd.Timestamp(year=yy, month=mm, day=dd))
+            except Exception:
+                pass
+    valid = [c for c in candidates if (ex_norm - c).days >= min_days_lag]
+    if not valid:
+        ym = ex_norm.month
+        if ym <= 6:
+            return pd.Timestamp(year=ex_norm.year - 1, month=12, day=31)
+        else:
+            return pd.Timestamp(year=ex_norm.year, month=6, day=30)
+    valid.sort(reverse=True)
+    return valid[0]
+
+
+def _earliest_release_date(rpe) -> pd.Timestamp:
+    """
+    根据「报告期期末 rpe」推导该财报**法律上最早可能公开发布的日期**（保守下界，用作前向含权的硬约束）。
+
+    A 股监管层对财报披露日期有法定最晚日期限制，且实际操作中交易所不会允许比下表更早
+    的大规模披露（用于防止任何形式的前视偏差）：
+
+      报告期       法定最晚披露日   保守最早可能发布日（本函数返回）
+      ----------   -------------   ---------------------------
+      年报 12/31    次年 4/30       次年 3/1   （大部分公司 3 月中下旬才开始集中披露）
+      中报 6/30     当年 8/31       当年 7/1   （7 月起开始有中报）
+      Q3   9/30     当年 10/31      当年 10/15（三季报通常 10 月中下旬披露）
+      Q1   3/31     当年 4/30       当年 4/10 （一季报通常 4 月中下旬披露）
+
+    对未知季度：fallback = rpe + 45 天。
+    """
+    r = pd.Timestamp(rpe).normalize()
+    mm, dd = r.month, r.day
+    if mm == 12 and dd == 31:              # 年报
+        return pd.Timestamp(year=r.year + 1, month=3,  day=1)
+    elif mm == 6  and dd == 30:             # 中报
+        return pd.Timestamp(year=r.year,     month=7,  day=1)
+    elif mm == 9  and dd == 30:             # Q3
+        return pd.Timestamp(year=r.year,     month=10, day=15)
+    elif mm == 3  and dd == 31:             # Q1
+        return pd.Timestamp(year=r.year,     month=4,  day=10)
+    return r + pd.Timedelta(days=45)
+
+
+def _uv_calc_daily_div_yield(div_df, stock_hist_series: pd.Series):
+    """
+    V5 版「近一年动态股息率」——完全对齐用户 2026-07-10 明确给出的三类算例：
+
+    核心算法（一句话）：
+      对每个交易日 T：
+        Step A [前向含权]：先把 「ex_date <= T + 35 天」的分红全部视为「在 T 日市场已通过公告/财报知道」，
+                          因为 A 股从公告/财报发布 → 除权除息日常规间隔 20~40 天（取 35 天中值）；
+                          超出 35 天的 = 财报还没出 = 市场还不知道 = 不计入。
+                          * 例：双汇 2023 年报 3/22 发布 → 4/26 除权，间隔 35 天，
+                            在 T=2024-03-22 当天起才计入，T=2024-02-26 不会提前吃到 2023 年
+                            报分红（彻底杜绝前视偏差）。
+        Step B [锚定最新报告期]：在已含权的分红里，找到 最大/最晚 的 report_period_end → latest_rpe。
+        Step C [滚动一整年的报告期窗口]：只保留 Step A 中 report_period_end 属于 (latest_rpe - 365 天, latest_rpe] 区间的分红。
+                  → 等价于「从 latest_rpe 往回倒一整个自然年度报告期内的所有分红累加」。
+                  → 自动满足：最多包含 1 个完整年度报告周期（最多 4 次季度分红）；
+                                同时永远排除「更早一个年度的年报」（2022 年报不会与 2023 年报同时计入）。
+
+    用户算例 1（双汇 2024-04-12 买入价 26.87）：
+      已公布且 ≤ T+35d：
+        2023 中报 (ex 2023-09-11, rpe 2023-06-30) ✓
+        2023 年度 (ex 2024-04-26, rpe 2023-12-31) ✓  →  ex-T = 14 天 ≤ 35 天（年报 3/22 已公告）
+      Step B: latest_rpe = 2023-12-31
+      Step C: window = (2022-12-31, 2023-12-31]  →  2022 年报 rpe=2022-12-31 落在左闭区间外 → 被排除！
+        计入：2023 中报 0.75 + 2023 年度 0.70 = 1.45 元/股
+        股息率 = 1.45 / 26.87 = 5.40%  ← 与用户口头给出的正确值完全一致！
+
+    用户算例 2A（2023 年报已公布）：
+      2022 年报 0.7 + 2023 中 0.3 + 2023Q3 0.5 + 2023 年 0.6，其中 2023 年 ex 在 T+35d 内。
+        latest_rpe = 2023-12-31，窗口 >2022-12-31：0.3+0.5+0.6 = 1.4  ✓
+    用户算例 2B（2023 年报尚未公布）：
+      2023 年度 ex 落在 T+35d 之外（或尚未公告则列表里根本没有）：
+        Step A 不含 2023 年度 → latest_rpe = 2023-09-30
+        Step C: window = (2022-09-30, 2023-09-30]
+          → 2022 年报 0.7 + 2023 中 0.3 + 2023Q3 0.5 = 1.5  ✓
+
+    用户算例 3（2025 年一季度分红）：
+      在 latest_rpe = 2025-03-31 时，window = (2024-03-31, 2025-03-31]
+        → 恰好：把 2024Q1 分红（rpe=2024-03-31）排除，
+                把 2024 年中/Q3/年/2025Q1 全保留
+        → 正是用户要求的「当前一季度分红 + 上一年一季度后的所有分红」。
+
+    返回:
+      (rolling_1y_div_series, yield_pct_series) 两个 Series，索引与 stock_hist_series 对齐
+    """
+    trade_idx = stock_hist_series.index.sort_values()
+
+    # ============== Step 1: 为每笔分红打 (known_date(用于StepA判定), report_period_end, per_sh) ==============
+    # 其中 known_date = ex_date - KNOWN_LOOKAHEAD_DAYS。含义：从 known_date 起，这笔分红在 Step A 里就算“已知”。
+    # （因为 ex_date <= T + 35d  ⇔  T >= ex_date - 35d；我们把 ex_date - KNOWN_LOOKAHEAD_DAYS 叫做“该笔分红的生效起始日”）
+    # 这样，沿时间推进时只需：当前交易日 T 跨过某笔分红的生效起始日 → 把该笔分红加入“已含权池”。
+    div_items = []  # list[tuple(生效起始日 pd.Timestamp, report_period_end pd.Timestamp, per_sh float)]
+    if len(div_df) > 0:
+        for _, r in div_df.iterrows():
+            try:
+                exd = r["ex_date"] if hasattr(r["ex_date"], "date") else pd.Timestamp(r["ex_date"])
+                exd_norm = exd.normalize()
+                per_sh = float(r.get("per_share_dividend") or 0.0)
+                if per_sh <= 0:
+                    continue
+                rpe = _derive_report_period_end(exd_norm)
+                # 【V6 双重约束MAX】100% 杜绝任何前视偏差：
+                #   约束① 监管层面（监管最早发布日 + 15天缓冲，因为财报实际集中在 4/中下旬，跳过零星披露期）
+                #   约束② 实操层面（ex_date 往前 15 天，A 股 公告→除权 真实最快也≥20天，留5天绝对安全垫）
+                #   → 取两者中【更晚的日期】当 known_from，对任何 A 股绝不可能早于真实公开日
+                hard_earliest       = _earliest_release_date(rpe) + pd.Timedelta(days=15)
+                practical_earliest  = exd_norm - pd.Timedelta(days=15)
+                known_from = max(hard_earliest, practical_earliest)
+                div_items.append((known_from, rpe, per_sh))
+            except Exception:
+                continue
+    # 按「生效起始日」排序（因为 Step A 是“到了 T 日，哪些分红已经在 Step A 生效”）
+    div_items.sort(key=lambda x: x[0])
+
+    # ============== Step 2: 生成稀疏分段：每段区间内「Step A 的已知分红集合」保持不变 ==============
+    # 段的分界点 = [所有 div_items 的 known_from] ∪ [所有交易日]。段内 分子D_total恒定（只跟 latest_rpe 和 1 年窗口有关），
+    # 分母 price 每天变，但我们只需记住「当时段内 report_period_sum 的 dict」——等会儿再逐天或按事件点计算。
+    # 更简单高效的做法（因为分红稀疏，每年最多 4 笔）：
+    #   以 div_items 的 known_from 作为“事件点”，维护 {rpe: sum_per_sh} dict；
+    #   在每两个相邻事件点之间：dict 不变 → latest_rpe 不变 → 分子 D_total 是常量。
+    #   然后把常量值 ffill 到完整交易日索引上。
+    # 为了做到这一点，先把 div_items 建成“事件点 → 加入累计后的 dict 快照所对应的 D_total”。
+    report_period_sum = {}  # key=Timestamp(rpe), value=该报告期下 StepA 含权后的累计 per_sh
+    sparse_dates = []
+    sparse_D = []  # 该事件点之后的 D_total（每股） = sum{rpe in window} * report_period_sum[rpe]
+
+    def _current_D_total() -> float:
+        """根据当前 report_period_sum，计算 Step B + Step C 后的「每股近一年累计派现」。"""
+        if not report_period_sum:
+            return 0.0
+        # Step B: latest_rpe = max(report_period_sum.keys())
+        rpes = list(report_period_sum.keys())
+        latest_rpe = max(rpes)  # pd.Timestamp
+        # Step C: 窗口左边界 = latest_rpe - 365 天（不含该左边界点本身）
+        #   用 date 对象比较避免时间时区/纳秒级问题
+        left_bound_ts = latest_rpe - pd.Timedelta(days=365)
+        total = 0.0
+        for rp, val in report_period_sum.items():
+            if rp > left_bound_ts and rp <= latest_rpe:
+                total += float(val)
+        return total
+
+    # 逐个加入“分红生效起始日”事件（不需要 before_first 基线，后面的 fillna(0) 会兜住初始空区间）
+    for (known_from, rpe, per_sh) in div_items:
+        report_period_sum[rpe] = report_period_sum.get(rpe, 0.0) + per_sh
+        sparse_dates.append(known_from)
+        sparse_D.append(_current_D_total())
+
+    # 把稀疏 (date, D_total) 转 Series，对齐到完整交易日索引
+    if len(sparse_dates) == 0:
+        rolling_1y = pd.Series(0.0, index=trade_idx, dtype="float64")
+    else:
+        sparse_s = pd.Series(sparse_D, index=sparse_dates, dtype="float64")
+        # 同一 known_from 可能多笔（概率低）→ 取最后一笔
+        sparse_s = sparse_s.groupby(level=0).last()
+        # 先按日期排序 sparse_s 的 index（保证后续 reindex+ffill 不会因为之前乱序插入出现“晚日期0覆盖早日期有效值”的跳变）
+        sparse_s = sparse_s.sort_index()
+        # 经典 union + ffill + reindex 法，保证交易日到已知稀疏点之间能向前取到最近的 D_total
+        union_idx = sparse_s.index.union(trade_idx).sort_values()
+        padded = sparse_s.reindex(union_idx).ffill()
+        rolling_1y = padded.reindex(trade_idx).ffill().fillna(0.0)
+
+    # ============== Step 3: 股息率 % = D_total / price * 100 ==============
+    yield_pct = pd.Series(index=trade_idx, dtype="float64")
+    valid_close = stock_hist_series.reindex(trade_idx)
+    mask = (rolling_1y > 0) & (valid_close > 0)
+    yield_pct.loc[mask] = (rolling_1y.loc[mask] / valid_close.loc[mask]) * 100.0
+    yield_pct = yield_pct.ffill().fillna(0.0)
+    rolling_1y = rolling_1y.ffill().fillna(0.0)
+    return rolling_1y, yield_pct
+
+
+def _backtest_undervalue(symbol: str, principal: float,
+                         sz_buy_pe=None, sz_sell_pe=None,
+                         buy_div_yield_threshold=None, sell_div_yield_threshold=None,
+                         buy_date=None, buy_price=None):
+    """个股低估回测核心逻辑（V4：深证PE × 股息率 二维版，已移除个股PE）。
+
+    【买入/复投条件判断规则（V4）】：
+      设 szB = 深证买入阈值 启用；divB = 买入股息率阈值 启用
+          C_sz  = 深证PE <= sz_buy_pe
+          C_div = 当日股息率% > buy_div_yield_threshold
+      ┌────────────────────┬───────────────────────────────┐
+      │ 条件组合            │ 触发公式                      │
+      ├────────────────────┼───────────────────────────────┤
+      │ szB=1 且 divB=1     │ C_sz AND C_div                │
+      │ szB=1 且 divB=0     │ C_sz                          │
+      │ szB=0 且 divB=1     │ C_div                         │
+      │ 两者全不启用         │ 「分红当日」直接按收盘价复投  │
+      └────────────────────┴───────────────────────────────┘
+
+    【卖出条件判断规则（V4）】：
+      设 szS = 深证卖出阈值 启用；divS = 卖出股息率阈值 启用
+          S_sz  = 深证PE > sz_sell_pe
+          S_div = 当日股息率% < sell_div_yield_threshold
+      ┌────────────────────┬───────────────────────────────┐
+      │ 条件组合            │ 触发公式                      │
+      ├────────────────────┼───────────────────────────────┤
+      │ szS=1 且 divS=1     │ S_sz AND S_div                │
+      │ szS=1 且 divS=0     │ S_sz                          │
+      │ szS=0 且 divS=1     │ S_div                         │
+      │ 两者全不启用         │ 什么都不做，继续持有          │
+      └────────────────────┴───────────────────────────────┘
+
+    支持 买入→卖出→再买入→再卖出 的多轮循环，分阶段统计收益，并汇总总收益。
+
+    参数:
+      symbol: 6位A股代码
+      principal: 初始买入本金（元）
+      sz_buy_pe: 可选（非必填），深证指数 PE 买入阈值。留空=不启用深证PE过滤。
+      sz_sell_pe: 可选（非必填），深证指数 PE 卖出阈值。留空=不启用深证PE过滤。
+      buy_div_yield_threshold: 可选，买入股息率阈值(%)。填了则当日股息率>阈值才考虑买入。
+      sell_div_yield_threshold: 可选，卖出股息率阈值(%)。填了则当日股息率<阈值就考虑卖出。
+      buy_date: 可选，自定义买入日期。指定后不再自动找低估日。
+      buy_price: 可选，自定义买入价（不复权）。仅当 buy_date 已指定时有效。
+    返回: {ok, summary, events: [..], stages: [..], msg}
+    """
+    symbol = _ri_normalize_symbol(symbol)
+    if len(symbol) != 6 or not symbol.isdigit():
+        return {"ok": False, "msg": "股票代码格式不正确（需要6位数字）", "summary": None, "events": [], "stages": []}
+    if not isinstance(principal, (int, float)) or principal <= 0:
+        return {"ok": False, "msg": "买入本金必须为正数", "summary": None, "events": [], "stages": []}
+    if buy_div_yield_threshold is not None and (not isinstance(buy_div_yield_threshold, (int, float)) or buy_div_yield_threshold < 0):
+        return {"ok": False, "msg": "买入股息率阈值必须 ≥ 0（或留空不启用），单位 %，例如填 5 表示 5%", "summary": None, "events": [], "stages": []}
+    if sell_div_yield_threshold is not None and (not isinstance(sell_div_yield_threshold, (int, float)) or sell_div_yield_threshold < 0):
+        return {"ok": False, "msg": "卖出股息率阈值必须 ≥ 0（或留空不启用），单位 %，例如填 1 表示 1%", "summary": None, "events": [], "stages": []}
+    # sz_buy_pe / sz_sell_pe 非必填：允许留空；如果填了必须是正数
+    if sz_buy_pe is not None and isinstance(sz_buy_pe, (int, float)) and sz_buy_pe <= 0:
+        sz_buy_pe = None  # 填了0/负数视为未启用
+    if sz_sell_pe is not None and isinstance(sz_sell_pe, (int, float)) and sz_sell_pe <= 0:
+        sz_sell_pe = None
+
+    # ============================================================
+    # Part 1. 参数预处理 + 拉取数据
+    # ============================================================
+    raw_buy_date_in = buy_date
+    raw_buy_price_in = buy_price
+    user_specified_buy_date = False
+    parsed_buy_date = None
+    if buy_date is not None and str(buy_date).strip() != "":
+        user_specified_buy_date = True
+        try:
+            if isinstance(buy_date, (pd.Timestamp, dt.datetime, dt.date)):
+                parsed_buy_date = pd.Timestamp(buy_date).normalize()
+            else:
+                parsed_buy_date = pd.Timestamp(str(buy_date).strip()).normalize()
+        except Exception:
+            return {"ok": False, "msg": "自定义买入日期格式不正确（支持 YYYY.MM.DD / YYYY-MM-DD / YYYY/MM/DD 等）", "summary": None, "events": [], "stages": []}
+        if buy_price is not None and str(buy_price).strip() != "":
+            try:
+                bp = float(buy_price)
+                if bp <= 0:
+                    return {"ok": False, "msg": "自定义买入价格必须为正数（或留空=取当日收盘价）", "summary": None, "events": [], "stages": []}
+            except Exception:
+                return {"ok": False, "msg": "自定义买入价格格式不正确", "summary": None, "events": [], "stages": []}
+
+    today = pd.Timestamp(dt.date.today()).normalize()
+
+    # --- 拉取深证 PE 历史（如果 sz_buy_pe 或 sz_sell_pe 任一启用了才必须有；否则即使没数据也能走纯个股/股息率逻辑）---
+    sz_pe_hist_raw = pd.Series(dtype="float64")
+    need_sz_pe = (sz_buy_pe is not None) or (sz_sell_pe is not None)
+    if need_sz_pe:
+        sz_pe_hist_raw = _uv_load_shenzhen_pe_history()
+        if len(sz_pe_hist_raw) == 0:
+            return {"ok": False, "msg": "您启用了深证指数PE阈值，但无深证指数（sz_market）估值历史数据：请先在「深证指数估值」页刷新抓取完整历史再回测",
+                    "summary": None, "events": [], "stages": []}
+    else:
+        # 没启用深证PE阈值：即使没历史也没关系；后面 forward-fill 时填占位
+        sz_pe_hist_raw = _uv_load_shenzhen_pe_history()  # 能拉到就拉，拉不到也不报错
+
+    sz_start = sz_pe_hist_raw.index.min() if len(sz_pe_hist_raw) > 0 else parsed_buy_date or (today - pd.Timedelta(days=365 * 10))
+    sz_end = sz_pe_hist_raw.index.max() if len(sz_pe_hist_raw) > 0 else today
+
+    hist_start = sz_start
+    if user_specified_buy_date:
+        hist_start = min(sz_start, parsed_buy_date)
+
+    # --- 拉取个股 不复权 日线 ---
+    stock_hist = _ri_fetch_raw_daily(symbol, hist_start - pd.Timedelta(days=7), sz_end + pd.Timedelta(days=7))
+    if len(stock_hist) == 0:
+        return {"ok": False, "msg": f"无法获取 {symbol} 的不复权历史日线（akshare/腾讯抓取失败）",
+                "summary": None, "events": [], "stages": []}
+
+    # --- 拉取个股 分红历史（股息率计算依赖）---
+    div_df = _ri_fetch_dividends(symbol)
+
+    # ============================================================
+    # Part 2. 数据预处理：将 深证PE / 股息率 forward-fill 到所有个股交易日
+    # ============================================================
+    trade_dates = stock_hist.index.sort_values()
+    # 深证 PE：按 个股交易日 重新索引 + ffill
+    sz_pe_ff = pd.Series(index=trade_dates, dtype="float64")
+    if len(sz_pe_hist_raw) > 0:
+        sz_pe_ff = sz_pe_hist_raw.reindex(trade_dates, method="ffill")
+        if sz_pe_ff.isna().any() and len(sz_pe_hist_raw) > 0:
+            first_valid_sz = sz_pe_hist_raw.iloc[0]
+            sz_pe_ff = sz_pe_ff.fillna(first_valid_sz)
+
+    # 每日滚动1年股息率（完全基于本地分红+收盘价，无外部接口依赖）
+    rolling_div_1y, div_yield_ff = _uv_calc_daily_div_yield(div_df, stock_hist)
+    div_yield_ff = div_yield_ff.reindex(trade_dates).ffill()
+
+    # ============================================================
+    # Part 3. 确定首次买入日期/价格（首轮）
+    # ============================================================
+    if user_specified_buy_date:
+        first_buy_date = parsed_buy_date
+        if first_buy_date > today:
+            return {"ok": False, "msg": f"自定义买入日期 {first_buy_date.date()} 晚于今日 {today.date()}",
+                    "summary": None, "events": [], "stages": []}
+        if first_buy_date > stock_hist.index.max():
+            return {"ok": False,
+                    "msg": (f"自定义买入日期 {first_buy_date.date()} 晚于可获取的个股历史日线截止日 "
+                            f"{stock_hist.index.max().date()}（请选择更早的日期或手动指定价格）"),
+                    "summary": None, "events": [], "stages": []}
+        buy_reason = f"用户自定义买入日期 {first_buy_date.date()}"
+        if buy_price is not None and str(buy_price).strip() != "":
+            first_buy_price = float(buy_price)
+            first_buy_dt_actual = first_buy_date
+            buy_reason += f" · 用户自定义买入价 ¥{first_buy_price:.2f}"
+        else:
+            first_buy_dt_actual, _bp = _ri_nearest_close_after(stock_hist, first_buy_date)
+            if _bp is None or _bp <= 0:
+                return {"ok": False,
+                        "msg": f"自定义买入日期 {first_buy_date.date()} 附近找不到有效交易日收盘价（请稍后重试或手动指定买入价）",
+                        "summary": None, "events": [], "stages": []}
+            first_buy_price = float(_bp)
+            buy_reason += f" · 自动取当日/最近交易日收盘价 ¥{first_buy_price:.2f}"
+    else:
+        # 自动择时模式（非自定义买入日）：必须至少启用一个「买入过滤阈值」
+        if sz_buy_pe is None and buy_div_yield_threshold is None:
+            return {"ok": False,
+                    "msg": "您未启用深证PE买入阈值、买入股息率阈值中的任何一个，也没有填写「买入日期」→ 不知道该按什么标准择首次买入时机。请至少填写：①「买入日期」 或 ② 启用任一买入阈值（深证PE/股息率）",
+                    "summary": None, "events": [], "stages": []}
+        # 调用 find_buy_date：深证 + 股息率 二维条件
+        first_buy_date, skip_cnt, buy_reason = _uv_find_buy_date(
+            sz_pe_hist_raw, div_yield_ff,
+            sz_buy_pe, buy_div_yield_threshold
+        )
+        if first_buy_date is None:
+            return {"ok": False, "msg": "找不到满足条件的买入日期：" + buy_reason,
+                    "summary": None, "events": [], "stages": []}
+        first_buy_dt_actual, _bp_auto = _ri_nearest_close_after(stock_hist, first_buy_date)
+        if _bp_auto is None or _bp_auto <= 0:
+            return {"ok": False, "msg": f"找不到买入日期 {first_buy_date.date()} 附近的个股有效收盘价",
+                    "summary": None, "events": [], "stages": []}
+        first_buy_price = float(_bp_auto)
+
+    initial_shares = _ri_floor_100(principal / first_buy_price)
+    if initial_shares <= 0:
+        return {"ok": False,
+                "msg": f"本金过少，按买入价 ¥{first_buy_price:.2f} 无法买够 100 股（至少需要 ¥{first_buy_price * 100:.2f}）",
+                "summary": None, "events": [], "stages": []}
+
+    # ============================================================
+    # Part 4. 条件判断函数（V4：深证PE × 股息率 二维组合）
+    # ============================================================
+    sz_buy_enabled = (sz_buy_pe is not None)
+    div_buy_enabled = (buy_div_yield_threshold is not None)
+    sz_sell_enabled = (sz_sell_pe is not None)
+    div_sell_enabled = (sell_div_yield_threshold is not None)
+
+    def _fmt2(v):
+        return f"{v:.2f}" if v is not None else "—"
+
+    def _check_buy_ok(sz_pe_val, div_yield_pct_val):
+        """买入/复投条件：按用户V4二维逻辑表判断。
+        返回 (ok: bool, reason: str)
+        """
+        C_sz  = (sz_pe_val is not None) and (sz_pe_val <= sz_buy_pe) if sz_buy_enabled else True
+        C_div = (div_yield_pct_val is not None) and (div_yield_pct_val > buy_div_yield_threshold) if div_buy_enabled else False
+
+        sub_reasons = []
+        if sz_buy_enabled:
+            sub_reasons.append(("✓" if C_sz else "✗") + f" 深证PE={_fmt2(sz_pe_val)}<={sz_buy_pe:.2f}")
+        if div_buy_enabled:
+            sub_reasons.append(("✓" if C_div else "✗") + f" 股息率={_fmt2(div_yield_pct_val)}%>{buy_div_yield_threshold:.2f}%")
+
+        if sz_buy_enabled and div_buy_enabled:
+            ok = bool(C_sz and C_div)
+        elif sz_buy_enabled:
+            ok = bool(C_sz)
+        elif div_buy_enabled:
+            ok = bool(C_div)
+        else:
+            # 两个买入阈值全空：返回 False，主循环会用「分红当日直接复投」逻辑
+            ok = False
+            sub_reasons = ["全空买入阈值 → 不使用条件判断，仅在「分红当日」直接复投"]
+        return ok, "  ".join(sub_reasons)
+
+    def _check_sell_ok(sz_pe_val, div_yield_pct_val):
+        """卖出条件：按用户V4二维逻辑表判断。
+        返回 (ok: bool, reason: str)
+        """
+        S_sz  = (sz_pe_val is not None) and (sz_pe_val > sz_sell_pe) if sz_sell_enabled else False
+        S_div = (div_yield_pct_val is not None) and (div_yield_pct_val < sell_div_yield_threshold) if div_sell_enabled else False
+
+        sub_reasons = []
+        if sz_sell_enabled:
+            sub_reasons.append(("✓" if S_sz else "✗") + f" 深证PE={_fmt2(sz_pe_val)}>{sz_sell_pe:.2f}")
+        if div_sell_enabled:
+            sub_reasons.append(("✓" if S_div else "✗") + f" 股息率={_fmt2(div_yield_pct_val)}%<{sell_div_yield_threshold:.2f}%")
+
+        if sz_sell_enabled and div_sell_enabled:
+            ok = bool(S_sz and S_div)
+        elif sz_sell_enabled:
+            ok = bool(S_sz)
+        elif div_sell_enabled:
+            ok = bool(S_div)
+        else:
+            # 两个卖出阈值全空：永远不卖，持有估值到最后
+            ok = False
+            sub_reasons = ["全空卖出阈值 → 永不主动卖出，直到回测结束按最新价估值"]
+        return ok, "  ".join(sub_reasons)
+
+    # ============================================================
+    # Part 5. 状态机：多轮买卖循环 + 分阶段统计
+    # ============================================================
+    date_end = min(today, sz_end, stock_hist.index.max())
+
+    # 分红映射（ex_date → dict）
+    div_map = {}
+    if len(div_df) > 0:
+        for _, r in div_df.iterrows():
+            ed = r["ex_date"] if hasattr(r["ex_date"], "date") else pd.Timestamp(r["ex_date"])
+            div_map[ed.normalize()] = {
+                "gift": float(r["per_share_gift"]),
+                "transfer": float(r["per_share_transfer"]),
+                "div": float(r["per_share_dividend"]),
+            }
+
+    # 只遍历「有收盘价的个股交易日」，且 >= first_buy_dt_actual
+    iter_dates = trade_dates[(trade_dates >= first_buy_dt_actual) & (trade_dates <= date_end)]
+
+    # 全局状态
+    cash = float(principal)
+    shares = 0
+    events = []
+    stages = []  # 每轮交易的完整记录
+
+    # 状态机
+    STATE_CASH = "CASH"      # 空仓：等待买入机会
+    STATE_HOLDING = "HOLD"   # 持有：等待卖出机会 + 可复投
+    state = STATE_CASH
+
+    current_round = 0          # 当前第几轮（从1开始）
+    last_round_buy_ym = None   # 同个自然月内只择一次「再买入」（避免同一低估窗口内天天判断）
+    last_reinvest_ym = None    # 同个自然月内只复投一次
+
+    # 记录当前轮的元数据
+    round_info = None
+
+    # 辅助：从两个 Series 读取当日值
+    def _v_today(d0):
+        """返回 (sz_pe, div_yield_pct) 当日值"""
+        s = float(sz_pe_ff.loc[d0]) if (d0 in sz_pe_ff.index and pd.notna(sz_pe_ff.loc[d0])) else None
+        y = float(div_yield_ff.loc[d0]) if (d0 in div_yield_ff.index and pd.notna(div_yield_ff.loc[d0])) else None
+        return s, y
+
+    def _start_new_round(round_no, start_dt, buy_price_val, buy_shares_val, note_str):
+        """开始新一轮：记录买入事件，初始化 round_info"""
+        nonlocal cash, shares, round_info
+        cost = float(buy_shares_val) * float(buy_price_val)
+        cash -= cost
+        shares += buy_shares_val
+
+        sz_pe_v, dy_v = _v_today(start_dt)
+
+        events.append({
+            "round": int(round_no),
+            "date": start_dt.strftime("%Y-%m-%d"),
+            "action": "买入",
+            "price": round(float(buy_price_val), 4),
+            "shares_delta": int(buy_shares_val),
+            "shares_total": int(shares),
+            "cash_delta": round(-cost, 2),
+            "cash_after": round(float(cash), 2),
+            "sz_pe": round(float(sz_pe_v), 2) if sz_pe_v is not None else None,
+            "div_yield_pct": round(float(dy_v), 2) if dy_v is not None else None,
+            "per_share_dividend": None,
+            "per_share_gift": None,
+            "per_share_transfer": None,
+            "note": f"[第{round_no}轮] {note_str}",
+        })
+        return {
+            "round": int(round_no),
+            "start_date": start_dt.strftime("%Y-%m-%d"),
+            "start_dt": start_dt,
+            "buy_price": float(buy_price_val),
+            "buy_shares": int(buy_shares_val),
+            "buy_amount": round(cost, 2),
+            "reinvest_cost_total": 0.0,    # 该轮内累计复投入本金
+            "dividend_total": 0.0,         # 该轮内累计分红现金
+            "end_date": None,
+            "end_dt": None,
+            "sell_price": None,
+            "sell_amount": None,
+            "return_pct": None,
+            "annual_return_pct": None,
+            "hold_days": None,
+            "status": "进行中",
+            "end_reason": None,
+        }
+
+    def _close_round(rinfo, end_dt, sell_price_val, reason_str, is_sold=True):
+        """结束当前轮：卖出/估值，计算该轮收益，推入 stages"""
+        nonlocal cash, shares
+        if rinfo is None:
+            return None
+
+        sz_pe_v, dy_v = _v_today(end_dt)
+
+        if is_sold:
+            # 真实卖出
+            sell_amt = float(shares) * float(sell_price_val)
+            cash += sell_amt
+            events.append({
+                "round": int(rinfo["round"]),
+                "date": end_dt.strftime("%Y-%m-%d"),
+                "action": "卖出",
+                "price": round(float(sell_price_val), 4),
+                "shares_delta": -int(shares),
+                "shares_total": 0,
+                "cash_delta": round(sell_amt, 2),
+                "cash_after": round(float(cash), 2),
+                "sz_pe": round(float(sz_pe_v), 2) if sz_pe_v is not None else None,
+                "div_yield_pct": round(float(dy_v), 2) if dy_v is not None else None,
+                "per_share_dividend": None,
+                "per_share_gift": None,
+                "per_share_transfer": None,
+                "note": f"[第{rinfo['round']}轮] {reason_str}",
+            })
+            total_invested = float(rinfo["buy_amount"]) + float(rinfo["reinvest_cost_total"]) - float(rinfo["dividend_total"])
+            # 避免分母为0
+            if total_invested <= 0:
+                total_invested = max(float(rinfo["buy_amount"]), 1e-6)
+            net_profit = sell_amt - total_invested
+            ret_pct = net_profit / total_invested * 100.0
+            rinfo.update({
+                "end_date": end_dt.strftime("%Y-%m-%d"),
+                "end_dt": end_dt,
+                "sell_price": float(sell_price_val),
+                "sell_amount": round(sell_amt, 2),
+                "return_pct": round(ret_pct, 2),
+                "status": "已卖出",
+                "end_reason": reason_str,
+            })
+            shares = 0
+        else:
+            # 未卖出，按估值
+            sell_amt = float(shares) * float(sell_price_val)
+            events.append({
+                "round": int(rinfo["round"]),
+                "date": end_dt.strftime("%Y-%m-%d"),
+                "action": "持有估值",
+                "price": round(float(sell_price_val), 4),
+                "shares_delta": 0,
+                "shares_total": int(shares),
+                "cash_delta": 0.0,
+                "cash_after": round(float(cash), 2),
+                "sz_pe": round(float(sz_pe_v), 2) if sz_pe_v is not None else None,
+                "div_yield_pct": round(float(dy_v), 2) if dy_v is not None else None,
+                "per_share_dividend": None,
+                "per_share_gift": None,
+                "per_share_transfer": None,
+                "note": f"[第{rinfo['round']}轮] {reason_str}",
+            })
+            total_invested = float(rinfo["buy_amount"]) + float(rinfo["reinvest_cost_total"]) - float(rinfo["dividend_total"])
+            if total_invested <= 0:
+                total_invested = max(float(rinfo["buy_amount"]), 1e-6)
+            net_profit = sell_amt - total_invested
+            ret_pct = net_profit / total_invested * 100.0
+            rinfo.update({
+                "end_date": end_dt.strftime("%Y-%m-%d"),
+                "end_dt": end_dt,
+                "sell_price": float(sell_price_val),
+                "sell_amount": round(sell_amt, 2),
+                "return_pct": round(ret_pct, 2),
+                "status": "持有中",
+                "end_reason": reason_str,
+            })
+
+        # 计算持有天数 & 年化
+        start_ts = rinfo["start_dt"]
+        end_ts = rinfo["end_dt"]
+        hd = (end_ts - start_ts).days + 1
+        hy = max(hd / 365.25, 1e-6)
+        ann_pct = 0.0
+        ratio = (float(rinfo["buy_amount"]) + net_profit) / max(float(rinfo["buy_amount"]), 1e-6)
+        if ratio > 0:
+            ann_pct = (ratio ** (1.0 / hy) - 1.0) * 100.0
+        rinfo["hold_days"] = int(hd)
+        rinfo["annual_return_pct"] = round(ann_pct, 2)
+        # 清理 datetime，方便 JSON 序列化
+        rinfo_out = {k: v for k, v in rinfo.items() if not k.endswith("_dt")}
+        stages.append(rinfo_out)
+        return rinfo_out
+
+    # ============================================================
+    # Part 6. 主循环：按个股交易日逐日遍历
+    # ============================================================
+    all_buy_empty = (not sz_buy_enabled) and (not div_buy_enabled)
+    for idx, d0 in enumerate(iter_dates):
+        price_now = float(stock_hist.loc[d0])
+        sz_pe_now, dy_now = _v_today(d0)
+
+        # ------ 先处理分红送转（对任何持有股票的日子都生效） ------
+        is_dividend_today = (d0 in div_map) and shares > 0
+        if is_dividend_today:
+            d = div_map[d0]
+            before_s = int(shares)
+            cash_div_amt = 0.0
+            note_parts = []
+            if d["div"] > 0:
+                cash_div_amt = round(float(before_s) * float(d["div"]), 2)
+                cash += cash_div_amt
+                if round_info is not None:
+                    round_info["dividend_total"] = float(round_info.get("dividend_total", 0.0)) + cash_div_amt
+                note_parts.append(f"派现 ¥{cash_div_amt:.2f}（{before_s}股 × ¥{d['div']:.4f}/股）")
+            if d["gift"] > 0 or d["transfer"] > 0:
+                new_shares = int(before_s * (1 + d["gift"] + d["transfer"]))
+                add_s = new_shares - before_s
+                shares = new_shares
+                note_parts.append(
+                    (f"送股 {d['gift']:.4f}/股" if d['gift'] > 0 else "") +
+                    (f" 转增 {d['transfer']:.4f}/股" if d['transfer'] > 0 else "") +
+                    f" → 新增 {add_s} 股，总 {shares} 股"
+                )
+            events.append({
+                "round": int(round_info["round"]) if round_info else 0,
+                "date": d0.strftime("%Y-%m-%d"),
+                "action": "分红送转",
+                "price": None,
+                "shares_delta": int(shares - before_s),
+                "shares_total": int(shares),
+                "cash_delta": round(cash_div_amt, 2),
+                "cash_after": round(float(cash), 2),
+                "sz_pe": round(float(sz_pe_now), 2) if sz_pe_now is not None else None,
+                "div_yield_pct": round(float(dy_now), 2) if dy_now is not None else None,
+                "per_share_dividend": round(float(d["div"]), 6) if d["div"] > 0 else 0.0,
+                "per_share_gift": round(float(d["gift"]), 6) if d["gift"] > 0 else 0.0,
+                "per_share_transfer": round(float(d["transfer"]), 6) if d["transfer"] > 0 else 0.0,
+                "note": ("[第" + str(round_info["round"]) + "轮] " if round_info else "") + " · ".join(p for p in note_parts if p),
+            })
+
+        # ============================================================
+        # 状态机分支 1：STATE_CASH 空仓 → 寻找买入机会（再买入）
+        # ============================================================
+        if state == STATE_CASH:
+            # 首轮：直接买入
+            if current_round == 0:
+                current_round = 1
+                last_round_buy_ym = first_buy_dt_actual.strftime("%Y-%m")
+                round_info = _start_new_round(1, first_buy_dt_actual, first_buy_price, initial_shares, buy_reason)
+                state = STATE_HOLDING
+                last_reinvest_ym = None
+                # 如果首轮买入日不是遍历的第一天（first_buy_dt_actual == d0 则跳过当天其他逻辑），
+                # 如果 d0 > first_buy_dt_actual 则继续处理当日卖出/复投判断
+                if d0 == first_buy_dt_actual:
+                    continue
+            else:
+                # 非首轮：寻找再买入机会（月度窗口去重）
+                # 注意：全空买入阈值时 STATE_CASH 状态下永远不会自动再买入（没有判断依据）
+                if not all_buy_empty:
+                    cur_ym = d0.strftime("%Y-%m")
+                    if last_round_buy_ym is None or last_round_buy_ym != cur_ym:
+                        ok, reason = _check_buy_ok(sz_pe_now, dy_now)
+                        if ok and cash >= 100.0:
+                            add_s = _ri_floor_100(cash / price_now)
+                            if add_s > 0:
+                                current_round += 1
+                                last_round_buy_ym = cur_ym
+                                round_info = _start_new_round(
+                                    current_round, d0, price_now, add_s,
+                                    f"[{cur_ym}窗口] 再买入机会：{reason}"
+                                )
+                                state = STATE_HOLDING
+                                last_reinvest_ym = None
+                                continue  # 买入当日不再卖出
+
+        # ============================================================
+        # 状态机分支 2：STATE_HOLDING 持有 → 先判断卖出，再判断复投
+        # ============================================================
+        if state == STATE_HOLDING and shares > 0:
+            # ------ 卖出判断（V4二维组合） ------
+            all_sell_empty = (not sz_sell_enabled) and (not div_sell_enabled)
+            if not all_sell_empty:
+                sell_ok, sell_reason = _check_sell_ok(sz_pe_now, dy_now)
+                if sell_ok:
+                    _close_round(round_info, d0, price_now, f"{sell_reason}，触发清仓卖出", is_sold=True)
+                    round_info = None
+                    state = STATE_CASH
+                    last_reinvest_ym = None
+                    continue
+
+            # ------ 复投判断（持有中且有现金 ≥ 100 元） ------
+            if cash >= 100.0:
+                cur_ym = d0.strftime("%Y-%m")
+                # 月度窗口去重：全空阈值时，只有「分红当日」才允许直接复投
+                reinvest_ok, reinvest_reason = False, ""
+                if all_buy_empty:
+                    # 买入阈值全空 → 分红当日直接复投（按不复权收盘价）
+                    if is_dividend_today:
+                        reinvest_ok = True
+                        reinvest_reason = "全空买入阈值 → 分红当日按收盘价直接复投"
+                else:
+                    reinvest_ok, reinvest_reason = _check_buy_ok(sz_pe_now, dy_now)
+
+                if reinvest_ok:
+                    if last_reinvest_ym is None or last_reinvest_ym != cur_ym:
+                        add_s = _ri_floor_100(cash / price_now)
+                        if add_s > 0:
+                            cost = float(add_s) * float(price_now)
+                            cash -= cost
+                            shares += add_s
+                            last_reinvest_ym = cur_ym
+                            if round_info is not None:
+                                round_info["reinvest_cost_total"] = float(round_info.get("reinvest_cost_total", 0.0)) + cost
+                            sz_pe_v, dy_v = _v_today(d0)
+                            events.append({
+                                "round": int(round_info["round"]) if round_info else 0,
+                                "date": d0.strftime("%Y-%m-%d"),
+                                "action": "复投",
+                                "price": round(float(price_now), 4),
+                                "shares_delta": int(add_s),
+                                "shares_total": int(shares),
+                                "cash_delta": round(-cost, 2),
+                                "cash_after": round(float(cash), 2),
+                                "sz_pe": round(float(sz_pe_v), 2) if sz_pe_v is not None else None,
+                                "div_yield_pct": round(float(dy_v), 2) if dy_v is not None else None,
+                                "per_share_dividend": None,
+                                "per_share_gift": None,
+                                "per_share_transfer": None,
+                                "note": (f"[第{round_info['round']}轮] [{cur_ym}窗口] 复投：{reinvest_reason}" if round_info else f"[{cur_ym}窗口] 复投：{reinvest_reason}"),
+                            })
+
+    # ============================================================
+    # Part 7. 结束循环后：若仍在持有 → 估值收盘
+    # ============================================================
+    final_dt = None
+    final_status = ""
+    if state == STATE_HOLDING and shares > 0 and round_info is not None:
+        hold_dt = min(today, stock_hist.index.max(), sz_end)
+        valid_closes = stock_hist[stock_hist.index <= hold_dt]
+        if len(valid_closes) > 0:
+            hold_dt, hold_price = valid_closes.index[-1], float(valid_closes.iloc[-1])
+        else:
+            hold_price = first_buy_price
+            hold_dt = first_buy_dt_actual
+        # 友好显示"未触发卖出"的具体阈值
+        no_trigger = []
+        if sz_sell_enabled: no_trigger.append(f"深证PE始终未>{sz_sell_pe:.2f}")
+        if div_sell_enabled: no_trigger.append(f"股息率始终未<{sell_div_yield_threshold:.2f}%")
+        no_trigger_str = "；".join(no_trigger) if no_trigger else "（未启用任何卖出阈值，策略为一直持有至期末估值）"
+        reason_end = f"仍持有（未触发卖出：{no_trigger_str}），按最新收盘价估值"
+        _close_round(round_info, hold_dt, hold_price, reason_end, is_sold=False)
+        final_dt = hold_dt
+        final_status = reason_end
+    elif state == STATE_CASH and len(stages) > 0:
+        last_stage = stages[-1]
+        final_dt = pd.Timestamp(last_stage["end_date"])
+        final_status = f"已清仓（最近一轮：{last_stage.get('end_reason', '卖出')}）"
+    else:
+        final_dt = first_buy_dt_actual
+        final_status = "无有效交易"
+
+    # ============================================================
+    # Part 8. 汇总统计：总收益率 / 年化（基于投入本金 vs 最终总资产）
+    # ============================================================
+    total_value_final = float(cash)
+    if len(stages) > 0 and stages[-1]["status"] == "持有中":
+        last_sa = float(stages[-1]["sell_amount"])
+        total_value_final = float(cash) + last_sa
+
+    hold_days_total = (final_dt - first_buy_dt_actual).days + 1
+    hold_years_total = max(hold_days_total / 365.25, 1e-6)
+    total_ret_pct = (total_value_final - float(principal)) / float(principal) * 100.0
+    annual_ret_pct = ((total_value_final / float(principal)) ** (1.0 / hold_years_total) - 1.0) * 100.0
+
+    sec_name, sec_suffix = _ri_fetch_sec_name(symbol)
+
+    total_rounds = len(stages)
+    total_invested_sum = sum(float(s["buy_amount"]) + float(s.get("reinvest_cost_total", 0.0)) - float(s.get("dividend_total", 0.0)) for s in stages)
+    total_sell_sum = sum(float(s["sell_amount"]) for s in stages if s["sell_amount"])
+
+    # —— 生成 buy_logic / sell_logic 的中文描述（V4 二维组合）——
+    def _logic_buy_str():
+        parts = []
+        if sz_buy_enabled: parts.append(f"深证PE<={sz_buy_pe:.2f}")
+        if div_buy_enabled: parts.append(f"股息率>{buy_div_yield_threshold:.2f}%")
+        if not parts:
+            return "未启用任何买入阈值（分红当日直接复投）"
+        if sz_buy_enabled and div_buy_enabled:
+            return parts[0] + "  AND  " + parts[1]
+        return parts[0]
+
+    def _logic_sell_str():
+        parts = []
+        if sz_sell_enabled: parts.append(f"深证PE>{sz_sell_pe:.2f}")
+        if div_sell_enabled: parts.append(f"股息率<{sell_div_yield_threshold:.2f}%")
+        if not parts:
+            return "未启用任何卖出阈值（一直持有到期末估值）"
+        if sz_sell_enabled and div_sell_enabled:
+            return parts[0] + "  AND  " + parts[1]
+        return parts[0]
+
+    summary = {
+        "symbol": symbol,
+        "sec_name": sec_name or "",
+        "sec_suffix": sec_suffix,
+        "sz_buy_pe": float(sz_buy_pe) if sz_buy_pe is not None else None,
+        "sz_sell_pe": float(sz_sell_pe) if sz_sell_pe is not None else None,
+        "low_stock_pe": None,
+        "high_stock_pe": None,
+        "buy_div_yield_threshold": float(buy_div_yield_threshold) if buy_div_yield_threshold is not None else None,
+        "sell_div_yield_threshold": float(sell_div_yield_threshold) if sell_div_yield_threshold is not None else None,
+        "principal": float(principal),
+        "buy_date": first_buy_dt_actual.strftime("%Y-%m-%d"),
+        "buy_price": round(float(first_buy_price), 4),
+        "initial_shares": int(initial_shares),
+        "final_status": final_status,
+        "final_date": final_dt.strftime("%Y-%m-%d") if final_dt else "",
+        "remaining_cash": round(float(cash), 2),
+        "total_value": round(float(total_value_final), 2),
+        "hold_days": int(hold_days_total),
+        "hold_years": round(hold_years_total, 3),
+        "total_return_pct": round(total_ret_pct, 2),
+        "annual_return_pct": round(annual_ret_pct, 2),
+        "total_rounds": int(total_rounds),
+        "total_invested": round(float(total_invested_sum), 2),
+        "total_sell": round(float(total_sell_sum), 2),
+        "debug_echo_params": {
+            "symbol_in": symbol,
+            "principal_in": float(principal),
+            "low_stock_pe_in": None,
+            "high_stock_pe_in": None,
+            "sz_buy_pe_in": float(sz_buy_pe) if sz_buy_pe is not None else None,
+            "sz_sell_pe_in": float(sz_sell_pe) if sz_sell_pe is not None else None,
+            "buy_div_yield_in_pct": float(buy_div_yield_threshold) if buy_div_yield_threshold is not None else None,
+            "sell_div_yield_in_pct": float(sell_div_yield_threshold) if sell_div_yield_threshold is not None else None,
+            "buy_date_raw": str(raw_buy_date_in) if raw_buy_date_in is not None else None,
+            "buy_date_parsed": parsed_buy_date.strftime("%Y-%m-%d") if parsed_buy_date is not None else None,
+            "buy_price_raw": str(raw_buy_price_in) if raw_buy_price_in is not None else None,
+            "user_specified_buy_date": bool(user_specified_buy_date),
+            "mode": ("自定义买入日" if user_specified_buy_date else "（阈值自动择首次买入日）"),
+            "buy_logic": _logic_buy_str(),
+            "sell_logic": _logic_sell_str(),
+        },
+    }
+
+    # ============================================================
+    # Part 9. 最终返回前：递归清洗所有 NaN → None（保证 JSON 合法，前端不报错）
+    # ============================================================
+    def _sanitize_obj(o):
+        """递归遍历 dict/list/scalar，把 float('nan') / pd.NA / inf 统一转为 None"""
+        if o is None:
+            return None
+        if isinstance(o, dict):
+            return {k: _sanitize_obj(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_sanitize_obj(v) for v in o]
+        if isinstance(o, bool):
+            return o
+        if isinstance(o, (int, float)):
+            try:
+                fv = float(o)
+                import math as _math
+                if _math.isnan(fv) or _math.isinf(fv):
+                    return None
+                return o
+            except Exception:
+                return o
+        if isinstance(o, str):
+            return o
+        try:
+            if pd.isna(o):
+                return None
+        except Exception:
+            pass
+        return o
+
+    events_clean = _sanitize_obj(events) or []
+    stages_clean = _sanitize_obj(stages) or []
+    summary_clean = _sanitize_obj(summary) or {}
+    return {"ok": True, "msg": "ok", "summary": summary_clean, "events": events_clean, "stages": stages_clean}
+
+
+@app.route("/api/undervalue_backtest")
+def api_undervalue_backtest():
+    """
+    个股低估回测接口（V4：深证PE × 股息率 二维组合，多轮买卖循环）。
+    参数:
+      ?symbol=600519                (必选, 6位数字)
+      &principal=100000             (必选, 初始本金)
+      &buy_div_yield=5              (可选, 买入股息率阈值%, 当日近1年股息率>此值 时满足买入过滤条件之一)
+      &sell_div_yield=1             (可选, 卖出股息率阈值%, 当日近1年股息率<此值 时满足卖出过滤条件之一)
+      &sz_buy_pe=20                 (可选, 非必填, 深证指数PE买入阈值; 留空=不启用深证PE过滤)
+      &sz_sell_pe=40                (可选, 非必填, 深证指数PE卖出阈值; 留空=不启用深证PE过滤)
+      &buy_date=2024-01-02          (可选, 自定义买入日期, 指定后不再自动查找低估日)
+      &buy_price=10.15              (可选, 自定义买入价, 仅 buy_date 填写后生效; 留空=取当日收盘价)
+
+    【买入/复投触发条件组合】：
+      • 填了 sz_buy_pe 且 填了 buy_div_yield → sz_buy_pe 成立 AND buy_div_yield 成立
+      • 填了 sz_buy_pe 但 buy_div_yield 没填 → 只需 sz_buy_pe 成立
+      • sz_buy_pe 没填 但填了 buy_div_yield → 只需 buy_div_yield 成立
+      • 两个买入阈值全空 → 每遇到「分红当日」直接按不复权收盘价复投
+    【卖出触发条件组合】同理（AND/OR 逻辑镜像），最后一项两个阈值全空 → 永远不卖，期末按最新价估值。
+    返回: {ok, summary, events: [..], stages: [..], msg}
+    """
+    try:
+        sym = request.args.get("symbol", "").strip()
+        p_str = request.args.get("principal", "").strip()
+        bdy_str = request.args.get("buy_div_yield", "").strip()
+        sdy_str = request.args.get("sell_div_yield", "").strip()
+        sz_buy_str = request.args.get("sz_buy_pe", "").strip()
+        sz_sell_str = request.args.get("sz_sell_pe", "").strip()
+        bd_str = request.args.get("buy_date", "").strip()
+        bp_str = request.args.get("buy_price", "").strip()
+        if not sym or not p_str:
+            return jsonify({"ok": False, "msg": "缺少必填参数：symbol / principal"}), 400
+        principal = float(p_str)
+        buy_div_y = float(bdy_str) if bdy_str else None
+        sell_div_y = float(sdy_str) if sdy_str else None
+        sz_buy_pe = float(sz_buy_str) if sz_buy_str else None
+        sz_sell_pe = float(sz_sell_str) if sz_sell_str else None
+        buy_dt = bd_str if bd_str else None
+        buy_pr = bp_str if bp_str else None
+        res = _backtest_undervalue(sym, principal, sz_buy_pe, sz_sell_pe,
+                                   buy_div_y, sell_div_y,
+                                   buy_date=buy_dt, buy_price=buy_pr)
         return jsonify(res)
     except Exception as e:
         import traceback

@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>个股低估回测</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f7f8fa;
+    color: #333;
+    padding: 22px;
+  }
+  .page {
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    padding: 24px 28px;
+    margin-bottom: 22px;
+  }
+  .card h2 {
+    font-size: 18px;
+    color: #222;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    font-weight: 700;
+  }
+  .card h2::before {
+    content: "";
+    display: inline-block;
+    width: 5px; height: 20px;
+    background: linear-gradient(180deg, #c10000, #e50012);
+    border-radius: 3px;
+    margin-right: 10px;
+  }
+  .form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-end;
+  }
+  .form-group { flex: 1; min-width: 200px; }
+  .form-group label {
+    display: block;
+    font-size: 13.5px;
+    color: #555;
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 10px 13px;
+    font-size: 15px;
+    border: 1px solid #d5d5d5;
+    border-radius: 6px;
+    outline: none;
+    font-family: inherit;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .form-group input:focus {
+    border-color: #c10000;
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.08);
+  }
+  .form-group .hint { font-size: 12px; color: #999; margin-top: 5px; }
+  .form-section-title {
+    width: 100%;
+    font-size: 13.5px;
+    color: #0a4b8f;
+    font-weight: 700;
+    padding: 4px 0 2px;
+    margin-top: 4px;
+    border-bottom: 1px dashed #cfe0ff;
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 10px 30px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .2s;
+    font-family: inherit;
+  }
+  .btn-primary {
+    background: #c10000; color: #fff;
+  }
+  .btn-primary:hover { background: #a50000; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(193,0,0,0.25); }
+  .btn-primary:disabled { background: #c99; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-secondary { background: #f0f0f0; color: #555; }
+  .btn-secondary:hover { background: #e5e5e5; color: #222; }
+
+  .status-msg {
+    font-size: 13.5px;
+    min-height: 22px;
+    margin-left: 8px;
+    flex: 1;
+  }
+  .status-msg.err { color: #c10000; }
+  .status-msg.ok  { color: #1a8c54; }
+  .status-msg.info{ color: #0a4b8f; }
+
+  /* 汇总区 */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 14px;
+  }
+  .summary-item {
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #fffaf0, #fff);
+    border: 1px solid #ffe7be;
+    border-radius: 8px;
+  }
+  .summary-item.red {
+    background: linear-gradient(135deg, #fff9f9, #fff);
+    border-color: #ffd9d9;
+  }
+  .summary-item.blue {
+    background: linear-gradient(135deg, #f5f9ff, #fff);
+    border-color: #cfe0ff;
+  }
+  .summary-item.green {
+    background: linear-gradient(135deg, #f3fff6, #fff);
+    border-color: #c9ecd2;
+  }
+  .summary-item.gray {
+    background: linear-gradient(135deg, #f9fafb, #fff);
+    border-color: #e5e8ec;
+  }
+  .summary-label {
+    font-size: 12.5px; color: #777; margin-bottom: 6px;
+  }
+  .summary-value {
+    font-size: 19px; font-weight: 700; color: #333; letter-spacing: 0.5px;
+    word-break: break-all;
+  }
+  .summary-value.red { color: #c10000; }
+  .summary-value.green { color: #1a8c54; }
+  .summary-value.blue { color: #0a4b8f; }
+  .summary-sub {
+    font-size: 12px; color: #888; margin-top: 4px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
+  /* 明细表格 */
+  .tbl-wrap {
+    overflow-x: auto;
+    margin-top: 18px;
+    border-radius: 6px;
+    border: 1px solid #eee;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 1280px;
+    font-size: 13px;
+  }
+  thead th {
+    position: sticky; top: 0;
+    background: #f5f5f5;
+    color: #333;
+    text-align: center;
+    padding: 10px 8px;
+    border-bottom: 2px solid #e0e0e0;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 9px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    text-align: right;
+    white-space: nowrap;
+    color: #333;
+    font-variant-numeric: tabular-nums;
+  }
+  tbody td:first-child { text-align: center; }
+  tbody td.center { text-align: center; }
+  tbody tr:hover { background: #fbf6ef; }
+  tbody tr:nth-child(even) { background: #fbfbfb; }
+  tbody tr:nth-child(even):hover { background: #fbf6ef; }
+  .num-up { color: #c10000; }
+  .num-dn { color: #1a8c54; }
+  .act-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .act-tag.buy   { background: #fff0f0; color: #c10000; }
+  .act-tag.sell  { background: #f0fff3; color: #1a8c54; }
+  .act-tag.div   { background: #fff7e6; color: #9a6500; }
+  .act-tag.reinv { background: #eef4ff; color: #0a4b8f; }
+  .act-tag.hold  { background: #f0f2f5; color: #556; }
+
+  /* loading spinner */
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2.5px solid #ccc;
+    border-top-color: #c10000;
+    border-radius: 50%;
+    vertical-align: -3px;
+    margin-right: 6px;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 证券名称 chip */
+  .sec-chip {
+    display:inline-flex; align-items:center; gap:8px;
+    background: linear-gradient(135deg, #eaf3ff 0%, #d9e9ff 100%);
+    color: #0a4b8f;
+    border: 1px solid #bcd6ff;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px; font-weight: 700;
+    margin-left: 12px;
+    box-shadow: 0 1px 3px rgba(20,70,150,0.07);
+    vertical-align: middle;
+  }
+  .sec-chip .sec-name { color: #0a4b8f; }
+  .sec-chip .sec-code { color: #4a71a8; font-weight: 600; font-size: 13px; opacity: 0.9; }
+
+  /* 回测条件说明 */
+  .cond-box {
+    background: #f5faff;
+    border: 1px solid #d6e6ff;
+    border-radius: 8px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: #334;
+    line-height: 1.8;
+  }
+  .cond-box b { color: #0a4b8f; }
+  .cond-box .sep { margin: 0 6px; color: #aac; }
+
+  #summary-section { display: none; }
+  #details-section { display: none; }
+
+  .event-note {
+    text-align: left !important;
+    white-space: normal !important;
+    max-width: 340px;
+    color: #556;
+    line-height: 1.5;
+  }
+  /* 阶段明细 */
+  .stages-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #222;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .stages-title::before {
+    content: "";
+    display: inline-block;
+    width: 5px; height: 20px;
+    background: linear-gradient(180deg, #0a4b8f, #4d8ae2);
+    border-radius: 3px;
+  }
+  .stages-title .badge {
+    background: linear-gradient(135deg, #0a4b8f, #4d8ae2);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 12px;
+    border-radius: 12px;
+  }
+  .round-tag {
+    display: inline-block;
+    background: #eaf3ff;
+    color: #0a4b8f;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #bcd6ff;
+    margin-right: 4px;
+  }
+  .round-tag.sold { background: #f0fff3; color: #1a8c54; border-color: #c9ecd2; }
+  .round-tag.hold { background: #fff7e6; color: #9a6500; border-color: #ffe7be; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ======== 输入卡片 ======== -->
+  <div class="card">
+    <h2>个股低估回测参数</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>股票代码（6 位数字）</label>
+        <input type="text" id="symbol" maxlength="6" placeholder="例如 600519" value="">
+        <div class="hint">支持形如 600519 / 600519.SH / 000001.SZ</div>
+      </div>
+      <div class="form-group">
+        <label>初始买入本金（元）</label>
+        <input type="number" id="principal" placeholder="请输入本金" value="100000" min="1000" step="1000">
+        <div class="hint">至少够买 100 股（≥ 买入价 × 100）</div>
+      </div>
+    </div>
+
+    <div class="form-section-title" style="margin-top: 16px;">📅 买入时机</div>
+    <div class="form-row" style="margin-top: 8px;">
+      <div class="form-group">
+        <label>买入日期</label>
+        <input type="text" id="buy_date" value="" placeholder="支持：2015.1.5 / 2015-01-05 / 2015/1/5 等多种格式">
+      </div>
+      <div class="form-group">
+        <label>买入价格（元，不复权）</label>
+        <input type="number" id="buy_price" placeholder="留空=自动取当日收盘价" value="" min="0.01" step="0.01">
+      </div>
+    </div>
+
+    <div class="form-section-title" style="margin-top: 16px;">💴 近 1 年股息率阈值（可选，无需外部接口，纯本地分红数据计算）</div>
+    <div class="form-row" style="margin-top: 8px;">
+      <div class="form-group">
+        <label>股息率买入阈值（%）</label>
+        <input type="number" id="buy_div_yield" placeholder="例如 5，留空=不启用股息率买入过滤" value="" min="0" step="0.1">
+        <div class="hint">当日 近1年累计派现÷当日收盘价×100% > 此值 时，作为买入过滤条件之一</div>
+      </div>
+      <div class="form-group">
+        <label>股息率卖出阈值（%）</label>
+        <input type="number" id="sell_div_yield" placeholder="例如 1，留空=不启用股息率卖出过滤" value="" min="0" step="0.1">
+        <div class="hint">当日 近1年累计派现÷当日收盘价×100% < 此值 时，作为卖出过滤条件之一</div>
+      </div>
+    </div>
+
+    <div class="form-section-title" style="margin-top: 16px;">⚙️ 深证指数 PE 阈值（<b style="color:#b45f06;">非必填</b>，留空=不启用深证PE过滤）</div>
+    <div class="form-row" style="margin-top: 8px;">
+      <div class="form-group">
+        <label>深证 PE 买入阈值</label>
+        <input type="number" id="sz_buy_pe" value="" placeholder="例如 20，留空=不启用深证PE低估过滤" min="0.01" step="0.1">
+        <div class="hint">历史常用参考值 20：深证整体 PE 低于此值视为低估区；留空=不启用深证PE过滤</div>
+      </div>
+      <div class="form-group">
+        <label>深证 PE 卖出阈值</label>
+        <input type="number" id="sz_sell_pe" value="" placeholder="例如 40，留空=不启用深证PE高估过滤" min="0.01" step="0.1">
+        <div class="hint">历史常用参考值 40：深证整体 PE 高于此值视为高估区；留空=不启用深证PE过滤</div>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-run" onclick="runBacktest()">开始回测</button>
+      <button class="btn btn-secondary" onclick="clearAll()">清空</button>
+      <span class="status-msg info" id="status">💡 请输入参数后点"开始回测"。若您只用深证PE阈值，需要本地先有深证指数估值历史（若提示无数据请先点「深证指数估值」菜单刷新）。</span>
+    </div>
+  </div>
+
+  <!-- ======== 汇总卡片 ======== -->
+  <div class="card" id="summary-section">
+    <h2>回测结果汇总：<span id="s-sec-chip" class="sec-chip" style="display:none;"></span></h2>
+
+    <div class="cond-box" id="s-cond" style="margin-bottom: 20px;"></div>
+
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="summary-label">首次买入日（满足条件的最近交易日）</div>
+        <div class="summary-value" id="s-buy-date"></div>
+        <div class="summary-sub" id="s-buy-reason"></div>
+      </div>
+      <div class="summary-item red">
+        <div class="summary-label">初始买入价 / 买入股数</div>
+        <div class="summary-value red" id="s-buy-info"></div>
+        <div class="summary-sub" id="s-buy-sub"></div>
+      </div>
+      <div class="summary-item gray">
+        <div class="summary-label">最终状态</div>
+        <div class="summary-value" id="s-final-status"></div>
+        <div class="summary-sub" id="s-final-detail"></div>
+      </div>
+      <div class="summary-item green">
+        <div class="summary-label">剩余现金 + 持仓市值 = 总资产</div>
+        <div class="summary-value green" id="s-total-value"></div>
+        <div class="summary-sub" id="s-value-sub"></div>
+      </div>
+      <div class="summary-item red">
+        <div class="summary-label">总收益率（本金 → 终值）</div>
+        <div class="summary-value" id="s-total-ret"></div>
+        <div class="summary-sub" id="s-ret-sub"></div>
+      </div>
+      <div class="summary-item blue">
+        <div class="summary-label">持有周期 / 年化收益率</div>
+        <div class="summary-value blue" id="s-hold"></div>
+        <div class="summary-sub blue" id="s-annual"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== 阶段收益明细 ======== -->
+  <div class="card" id="stages-section" style="display:none;">
+    <div class="stages-title">
+      分阶段收益统计
+      <span class="badge" id="stages-count-badge">共 0 轮</span>
+    </div>
+    <div class="tbl-wrap">
+      <table id="stages-tbl" style="min-width: 1180px;">
+        <thead>
+          <tr>
+            <th style="width:70px;">轮次</th>
+            <th>状态</th>
+            <th>起息日 / 买入价</th>
+            <th>到期日 / 卖出价</th>
+            <th>初始买入</th>
+            <th>复投+分红</th>
+            <th>卖出/估值金额</th>
+            <th>阶段收益率</th>
+            <th>年化收益率</th>
+            <th>持有天数</th>
+            <th style="text-align:left; padding-left:14px;">结束原因</th>
+          </tr>
+        </thead>
+        <tbody id="stages-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ======== 交易事件明细表 ======== -->
+  <div class="card" id="details-section">
+    <div style="margin-bottom: 6px; display:flex; align-items:center; justify-content:space-between;">
+      <h2 style="margin: 0;">交易事件明细（按日期升序）</h2>
+    </div>
+    <div style="font-size:12.5px; color:#777; margin-bottom:8px;">
+      事件类型：<span class="act-tag buy">买入</span>
+      <span class="act-tag div">分红送转</span>
+      <span class="act-tag reinv">复投</span>
+      <span class="act-tag sell">卖出</span>
+      <span class="act-tag hold">持有估值</span>
+      · 每条事件左侧 <b>蓝/绿/黄 小标签</b> 表示所属第几轮交易
+    </div>
+    <!-- 列显示/隐藏控制：可自由勾选显示哪些列；每股派现/送股/转增已移到成交价之前 -->
+    <div id="col-toggles" style="font-size:12.5px; margin-bottom:10px; padding:8px 12px; background:#f5faff; border:1px solid #d6e6ff; border-radius:6px; line-height:1.9;">
+      <b style="color:#0a4b8f;">📌 列显示：</b>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="1" checked>日期</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="2" checked>轮次</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="3" checked>事件</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="4" checked>每股派现</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="5" checked>每股送股</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="6" checked>每股转增</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="7" checked>成交价</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="8" checked>股数变动</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="9" checked>持仓股数</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="10" checked>现金变动</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="11" checked>剩余现金</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="12" checked>深证PE</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="13" checked>近1年股息率</label>
+      <label style="margin:0 6px;"><input type="checkbox" class="col-cb" data-col="14" checked>说明</label>
+      <button type="button" class="btn btn-secondary" style="padding:2px 12px; font-size:12px; margin-left:8px;" onclick="resetColumnToggles()">全部显示</button>
+    </div>
+    <div class="tbl-wrap">
+      <table id="detail-tbl">
+        <thead>
+          <tr>
+            <th data-colidx="0" style="width:46px;">#</th>
+            <th data-colidx="1">日期</th>
+            <th data-colidx="2">轮次</th>
+            <th data-colidx="3">事件</th>
+            <th data-colidx="4">每股派现 (元)</th>
+            <th data-colidx="5">每股送股 (股)</th>
+            <th data-colidx="6">每股转增 (股)</th>
+            <th data-colidx="7">成交价 (不复权)</th>
+            <th data-colidx="8">股数变动</th>
+            <th data-colidx="9">持仓股数</th>
+            <th data-colidx="10">现金变动</th>
+            <th data-colidx="11">剩余现金</th>
+            <th data-colidx="12">深证整体 PE(TTM)</th>
+            <th data-colidx="13">近1年股息率(%)</th>
+            <th data-colidx="14" style="text-align:left; padding-left:14px;">说明</th>
+          </tr>
+        </thead>
+        <tbody id="detail-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+ *  工具函数
+ * ============================================================ */
+function fmtMoney(v) {
+  if (v === null || v === undefined || !isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  if (abs >= 1e8) return sign + '¥ ' + (abs/1e8).toFixed(4) + ' 亿';
+  if (abs >= 1e4) return sign + '¥ ' + (abs/1e4).toFixed(2) + ' 万';
+  return sign + '¥ ' + abs.toLocaleString('zh-CN',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtNum(v, digits=0) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return Number(v).toLocaleString('zh-CN',{maximumFractionDigits: digits});
+}
+function fmtPct(v) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return (v>0?'+':'') + Number(v).toFixed(2) + '%';
+}
+function fmtPrice(v) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return '¥ ' + Number(v).toLocaleString('zh-CN',{minimumFractionDigits:2, maximumFractionDigits:4});
+}
+function fmtPE(v) {
+  if (v===null||v===undefined||!isFinite(v)) return '—';
+  return Number(v).toFixed(2);
+}
+function $(id){return document.getElementById(id);}
+function setStatus(text, type='info') {
+  const el = $('status');
+  el.className = 'status-msg ' + (type || '');
+  el.innerHTML = text;
+}
+function showLoading(running) {
+  const btn = $('btn-run');
+  btn.disabled = !!running;
+  if (running) btn.innerHTML = '<span class="spinner"></span>回测中…';
+  else         btn.innerHTML = '开始回测';
+}
+
+/* ============================================================
+ *  清空
+ * ============================================================ */
+function clearAll() {
+  ['symbol','principal','buy_div_yield','sell_div_yield','sz_buy_pe','sz_sell_pe','buy_date','buy_price'].forEach(id => {
+    const el = $(id); if (el) el.value = '';
+  });
+  $('summary-section').style.display = 'none';
+  $('stages-section').style.display = 'none';
+  $('details-section').style.display = 'none';
+  $('detail-body').innerHTML = '';
+  $('stages-body').innerHTML = '';
+  setStatus('已清空，请重新输入参数。', 'info');
+}
+
+/* ============================================================
+ *  回测主流程（V4：深证PE × 股息率 二维组合）
+ * ============================================================ */
+async function runBacktest() {
+  const sym     = $('symbol').value.trim();
+  const p       = $('principal').value.trim();
+  const bdy     = $('buy_div_yield').value.trim();
+  const sdy     = $('sell_div_yield').value.trim();
+  const szBuy   = $('sz_buy_pe').value.trim();
+  const szSell  = $('sz_sell_pe').value.trim();
+  const bDate   = $('buy_date').value.trim();
+  const bPrice  = $('buy_price').value.trim();
+
+  if (!sym) return setStatus('请输入股票代码','err');
+  if (!p || parseFloat(p) <= 0) return setStatus('请输入有效的买入本金（>0）','err');
+  if (szBuy && parseFloat(szBuy) <= 0) return setStatus('若填写深证买入PE阈值，必须为正数（或留空=不启用）','err');
+  if (szSell && parseFloat(szSell) <= 0) return setStatus('若填写深证卖出PE阈值，必须为正数（或留空=不启用）','err');
+  if (szBuy && szSell && parseFloat(szBuy) >= parseFloat(szSell)) return setStatus('深证买入PE阈值必须小于卖出PE阈值（默认 20 < 40）','err');
+  if (bdy && parseFloat(bdy) < 0) return setStatus('买入股息率阈值必须 ≥ 0（或留空=不启用）','err');
+  if (sdy && parseFloat(sdy) < 0) return setStatus('卖出股息率阈值必须 ≥ 0（或留空=不启用）','err');
+  if (bdy && sdy && parseFloat(bdy) <= parseFloat(sdy)) return setStatus('买入股息率阈值 必须 大于 卖出股息率阈值（例如买=5%/卖=1%）','err');
+  if (bPrice && !bDate) return setStatus('「买入价格」仅在填写了「买入日期」时才生效，请先选择买入日期','err');
+  if (bPrice && parseFloat(bPrice) <= 0) return setStatus('买入价格必须为正数（或留空=取当日收盘价）','err');
+  const anyBuyEnabled = !!(szBuy || bdy);
+  if (!bDate && !anyBuyEnabled) return setStatus('您未启用深证PE/股息率 任一买入阈值，也没有填写「买入日期」→ 无法确定首次买入时机。请至少填写「买入日期」或启用任意一个买入阈值。','err');
+
+  showLoading(true);
+  let msg = '正在查询';
+  if (bDate) msg += '自定义买入日期' + (bPrice ? '（自定义价格）' : '（取当日收盘价）') + ' + ';
+  else msg += '（阈值组合自动择时） + ';
+  setStatus('<span class="spinner"></span>' + msg + '日线 + 分红 + 估值（首次约 2~8 秒，请稍候）…', 'info');
+
+  try {
+    let url = '/api/undervalue_backtest?symbol=' + encodeURIComponent(sym)
+            + '&principal=' + encodeURIComponent(p);
+    if (szBuy) url += '&sz_buy_pe='     + encodeURIComponent(szBuy);
+    if (szSell) url += '&sz_sell_pe='   + encodeURIComponent(szSell);
+    if (bdy)   url += '&buy_div_yield=' + encodeURIComponent(bdy);
+    if (sdy)   url += '&sell_div_yield='+ encodeURIComponent(sdy);
+    if (bDate) url += '&buy_date='      + encodeURIComponent(bDate);
+    if (bDate && bPrice) url += '&buy_price=' + encodeURIComponent(bPrice);
+
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (!json.ok) {
+      setStatus('❌ ' + (json.msg || '未知错误'), 'err');
+      showLoading(false);
+      return;
+    }
+
+    renderSummary(json.summary);
+    renderStages(json.stages || []);
+    renderEvents(json.events || [], json.stages || []);
+    $('summary-section').style.display = 'block';
+    $('stages-section').style.display = 'block';
+    $('details-section').style.display = 'block';
+    const evCnt = (json.events||[]).length;
+    const buyCnt = (json.events||[]).filter(e => e.action==='买入'||e.action==='复投').length;
+    const divCnt = (json.events||[]).filter(e => e.action==='分红送转').length;
+    const soldCnt = (json.events||[]).filter(e => e.action==='卖出').length;
+    const roundCnt = (json.stages||[]).length;
+    setStatus('✅ 回测完成。共 ' + roundCnt + ' 轮交易：事件 ' + evCnt + ' 条（买入/复投 ' + buyCnt + ' 次，分红 ' + divCnt + ' 次，卖出 ' + soldCnt + ' 次）。', 'ok');
+  } catch (e) {
+    setStatus('❌ 请求失败：' + e.message, 'err');
+  } finally {
+    showLoading(false);
+  }
+}
+
+/* ============================================================
+ *  渲染汇总
+ * ============================================================ */
+function renderSummary(s) {
+  // 证券名称 chip
+  const chip = $('s-sec-chip');
+  if (s.sec_name || s.symbol) {
+    const suffix = s.sec_suffix ? ('.' + s.sec_suffix) : '';
+    chip.innerHTML = '';
+    if (s.sec_name) {
+      const n = document.createElement('span');
+      n.className = 'sec-name'; n.textContent = s.sec_name;
+      chip.appendChild(n);
+      const dot = document.createElement('span');
+      dot.textContent = '·'; dot.style.opacity = '0.55';
+      chip.appendChild(dot);
+    }
+    const c = document.createElement('span');
+    c.className = 'sec-code'; c.textContent = s.symbol + suffix;
+    chip.appendChild(c);
+    chip.style.display = 'inline-flex';
+  } else {
+    chip.style.display = 'none';
+  }
+
+  // 回测条件条（V4：后端直接返回组合好的 buy_logic / sell_logic 字符串，不用再拼）
+  const echo = s.debug_echo_params || {};
+  const buyLogicTxt = echo.buy_logic || '—';
+  const sellLogicTxt = echo.sell_logic || '—';
+  const thrList = [];
+  if (s.sz_buy_pe != null) thrList.push('深买≤' + fmtPE(s.sz_buy_pe));
+  if (s.sz_sell_pe != null) thrList.push('深卖≥' + fmtPE(s.sz_sell_pe));
+  if (s.buy_div_yield_threshold != null) thrList.push('息买>' + Number(s.buy_div_yield_threshold).toFixed(2) + '%');
+  if (s.sell_div_yield_threshold != null) thrList.push('息卖<' + Number(s.sell_div_yield_threshold).toFixed(2) + '%');
+  const condHtml =
+    '<b>🔍 回测条件：</b>' +
+    '买入逻辑：<b style="color:#0a4b8f;">' + buyLogicTxt + '</b>' +
+    '<span class="sep">|</span>' +
+    '卖出逻辑：<b style="color:#c10000;">' + sellLogicTxt + '</b>' +
+    (thrList.length ? '<span class="sep">|</span>启用阈值：<span style="color:#555;">' + thrList.join(' / ') + '</span>' : '') +
+    '<span class="sep">|</span>' +
+    '本金：<b>' + fmtMoney(s.principal) + '</b>' +
+    (s.total_rounds ? '<span class="sep">|</span>共 <b style="color:#0a4b8f;">' + s.total_rounds + '</b> 轮交易' : '');
+  $('s-cond').innerHTML = condHtml;
+
+
+  // —— 基本信息 ——
+  $('s-buy-date').textContent = s.buy_date;
+  // 从 events 里找买入原因
+  $('s-buy-reason').textContent = '';
+
+  $('s-buy-info').innerHTML = fmtPrice(s.buy_price) + ' × ' + fmtNum(s.initial_shares) + ' 股';
+  $('s-buy-sub').innerHTML = '初始成本：' + fmtMoney(s.buy_price * s.initial_shares);
+
+  // —— 最终状态 ——
+  const fStatus = s.final_status || '';
+  const fsEl = $('s-final-status');
+  if (fStatus.indexOf('未卖出') >= 0 || fStatus.indexOf('持仓') >= 0) {
+    fsEl.innerHTML = '<span style="color:#0a4b8f;">持有中</span>';
+  } else {
+    fsEl.innerHTML = '<span style="color:#1a8c54;">已卖出</span>';
+  }
+  $('s-final-detail').innerHTML =
+    (s.final_date || '') + '<br>' +
+    (fStatus.length > 40 ? fStatus.slice(0,40) + '…' : fStatus);
+
+  // —— 总价值 ——
+  $('s-total-value').textContent = fmtMoney(s.total_value);
+  $('s-value-sub').innerHTML =
+    '剩余现金 ' + fmtMoney(s.remaining_cash) + ' + 持仓市值 ' + fmtMoney(s.total_value - s.remaining_cash);
+
+  // —— 收益率 ——
+  const retEl = $('s-total-ret');
+  retEl.textContent = fmtPct(s.total_return_pct);
+  retEl.className = 'summary-value ' + (s.total_return_pct >= 0 ? 'red' : 'green');
+  $('s-ret-sub').innerHTML =
+    '本金 ' + fmtMoney(s.principal) + ' → 终值 ' + fmtMoney(s.total_value) +
+    '<br>绝对收益：' + fmtMoney(s.total_value - s.principal);
+
+  // —— 年化 ——
+  $('s-hold').textContent = s.hold_years.toFixed(2) + ' 年（' + fmtNum(s.hold_days) + ' 天）';
+  const annEl = $('s-annual');
+  annEl.textContent = '年化收益率：' + fmtPct(s.annual_return_pct);
+  annEl.style.color = (s.annual_return_pct >= 0 ? '#0a4b8f' : '#c10000');
+}
+
+/* ============================================================
+ *  渲染阶段明细
+ * ============================================================ */
+function renderStages(stages) {
+  const badgeEl = $('stages-count-badge');
+  if (!stages || stages.length === 0) {
+    $('stages-section').style.display = 'none';
+    badgeEl.textContent = '共 0 轮';
+    return;
+  }
+  badgeEl.textContent = '共 ' + stages.length + ' 轮';
+  const body = $('stages-body');
+  body.innerHTML = '';
+  stages.forEach((s, idx) => {
+    const tr = document.createElement('tr');
+    const ret = Number(s.return_pct);
+    const retCls = ret >= 0 ? 'num-up' : 'num-dn';
+    const ann = Number(s.annual_return_pct);
+    const annCls = ann >= 0 ? '#0a4b8f' : '#c10000';
+    const statusCls = s.status === '已卖出' ? 'sold' : (s.status === '持有中' ? 'hold' : '');
+    const invested = (Number(s.buy_amount) + Number(s.reinvest_cost_total||0) - Number(s.dividend_total||0));
+    const reinvTxt = '复投 ' + fmtMoney(s.reinvest_cost_total||0) + '<br>分红 ' + fmtMoney(s.dividend_total||0);
+
+    tr.innerHTML = `
+      <td class="center" style="font-weight:700; font-size:14px; color:#0a4b8f;">第 ${s.round} 轮</td>
+      <td class="center"><span class="round-tag ${statusCls}">${s.status}</span></td>
+      <td class="center">${s.start_date}<br><span style="font-size:12px; color:#c10000;">买入价 ${fmtPrice(s.buy_price)}</span></td>
+      <td class="center">${s.end_date || '-'}<br><span style="font-size:12px; color:#1a8c54;">${s.sell_price ? ('卖出价 ' + fmtPrice(s.sell_price)) : '—'}</span></td>
+      <td style="text-align:right;">${fmtNum(s.buy_shares)} 股<br><span style="font-size:12px; color:#666;">成本 ${fmtMoney(s.buy_amount)}</span></td>
+      <td style="text-align:right; font-size:12.5px; line-height:1.5;">${reinvTxt}<br><span style="color:#666;">净投入 ${fmtMoney(invested)}</span></td>
+      <td style="text-align:right;">${fmtMoney(s.sell_amount||0)}<br><span style="font-size:12px; color:#666;">${s.status==='持有中'?'（估值）':'（实收）'}</span></td>
+      <td style="text-align:right; font-weight:700;" class="${retCls}">${fmtPct(s.return_pct)}<br><span style="font-size:12px; font-weight:400; color:#555;">利润 ${fmtMoney((Number(s.sell_amount)||0) - invested)}</span></td>
+      <td style="text-align:right; font-weight:600; color:${annCls};">${fmtPct(s.annual_return_pct)}</td>
+      <td class="center">${fmtNum(s.hold_days)} 天</td>
+      <td class="event-note" style="max-width:280px;">${s.end_reason || ''}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+/* ============================================================
+ *  渲染事件明细
+ * ============================================================ */
+function actTag(action) {
+  const map = { '买入':'buy', '卖出':'sell', '分红送转':'div', '复投':'reinv', '持有估值':'hold' };
+  const cls = map[action] || 'hold';
+  return '<span class="act-tag ' + cls + '">' + action + '</span>';
+}
+function roundBadge(roundNo, stages) {
+  if (!roundNo) return '<span style="color:#aaa;">—</span>';
+  let statusCls = '';
+  if (stages && stages.length) {
+    const found = stages.find(s => Number(s.round) === Number(roundNo));
+    if (found) {
+      statusCls = found.status === '已卖出' ? 'sold' : (found.status === '持有中' ? 'hold' : '');
+    }
+  }
+  return '<span class="round-tag ' + statusCls + '">第' + Number(roundNo) + '轮</span>';
+}
+function renderEvents(list, stages) {
+  const body = $('detail-body');
+  body.innerHTML = '';
+  if (!list || list.length === 0) {
+    body.innerHTML = '<tr><td colspan="15" class="center" style="color:#888; padding:24px 8px;">无交易事件</td></tr>';
+    applyColumnVisibility();
+    return;
+  }
+  list.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    if (i === 0 && r.action === '买入' && $('s-buy-reason')) {
+      $('s-buy-reason').textContent = r.note || '';
+    }
+    const sharesDeltaNum = Number(r.shares_delta) || 0;
+    const sharesDeltaTxt = sharesDeltaNum === 0
+      ? '<span style="color:#aaa;">—</span>'
+      : (sharesDeltaNum > 0
+          ? '<span class="num-up">+' + fmtNum(sharesDeltaNum) + '</span>'
+          : '<span class="num-dn">' + fmtNum(sharesDeltaNum) + '</span>');
+    const cashDeltaNum = Number(r.cash_delta) || 0;
+    const cashDeltaTxt = cashDeltaNum === 0
+      ? '<span style="color:#aaa;">—</span>'
+      : (cashDeltaNum > 0
+          ? '<span class="num-up">+' + fmtMoney(cashDeltaNum) + '</span>'
+          : '<span class="num-dn">' + fmtMoney(cashDeltaNum) + '</span>');
+    function _fmtPS(v) {
+      if (v===null||v===undefined||!isFinite(v)) return '<span style="color:#aaa;">—</span>';
+      const n = Number(v);
+      if (n === 0) return '<span style="color:#bbb;">0</span>';
+      return '<b style="color:#9a6500;">' + n.toFixed(4) + '</b>';
+    }
+
+    tr.innerHTML = `
+      <td data-colidx="0" class="center">${i + 1}</td>
+      <td data-colidx="1" class="center">${r.date || '-'}</td>
+      <td data-colidx="2" class="center">${roundBadge(r.round, stages)}</td>
+      <td data-colidx="3" class="center">${actTag(r.action)}</td>
+      <td data-colidx="4" class="center">${_fmtPS(r.per_share_dividend)}</td>
+      <td data-colidx="5" class="center">${_fmtPS(r.per_share_gift)}</td>
+      <td data-colidx="6" class="center">${_fmtPS(r.per_share_transfer)}</td>
+      <td data-colidx="7">${r.price ? fmtPrice(r.price) : '<span style="color:#aaa;">—</span>'}</td>
+      <td data-colidx="8">${sharesDeltaTxt}</td>
+      <td data-colidx="9" style="font-weight:700; color:#0a4b8f;">${fmtNum(r.shares_total)}</td>
+      <td data-colidx="10">${cashDeltaTxt}</td>
+      <td data-colidx="11" style="color:#1059a6;">${fmtMoney(r.cash_after)}</td>
+      <td data-colidx="12" class="center">${fmtPE(r.sz_pe)}</td>
+      <td data-colidx="13" class="center">${r.div_yield_pct == null ? '<span style="color:#aaa;">—</span>' : Number(r.div_yield_pct).toFixed(2) + '%'}</td>
+      <td data-colidx="14" class="event-note">${r.note || ''}</td>
+    `;
+    body.appendChild(tr);
+  });
+  applyColumnVisibility();
+}
+
+/* ============================================================
+ *  列显示/隐藏控制
+ * ============================================================ */
+function applyColumnVisibility() {
+  const tbl = $('detail-tbl');
+  if (!tbl) return;
+  // 0号列(#)永远显示，其余根据checkbox决定
+  document.querySelectorAll('.col-cb').forEach(cb => {
+    const col = parseInt(cb.getAttribute('data-col'), 10);
+    const show = cb.checked;
+    // thead th
+    const ths = tbl.querySelectorAll('thead th[data-colidx="' + col + '"]');
+    ths.forEach(th => { th.style.display = show ? '' : 'none'; });
+    // tbody td
+    const tds = tbl.querySelectorAll('tbody td[data-colidx="' + col + '"]');
+    tds.forEach(td => { td.style.display = show ? '' : 'none'; });
+  });
+}
+function resetColumnToggles() {
+  document.querySelectorAll('.col-cb').forEach(cb => { cb.checked = true; });
+  applyColumnVisibility();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.col-cb').forEach(cb => {
+    cb.addEventListener('change', applyColumnVisibility);
+  });
+});
+
+/* ============================================================
+ *  回车快捷启动
+ * ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  ['symbol','principal','buy_div_yield','sell_div_yield','sz_buy_pe','sz_sell_pe','buy_date','buy_price'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') runBacktest();
+    });
+  });
+});
+</script>
+</body>
+</html>

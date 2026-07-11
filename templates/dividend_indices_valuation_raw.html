@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>{{ page_title }} · Value500 数据图表</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    background: #f7f8fa;
+    color: #222;
+    padding: 18px 22px 24px;
+    min-height: 100vh;
+  }
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    border-left: 6px solid #c10000;
+    padding: 2px 0 2px 12px;
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    color: #666;
+    font-size: 13.5px;
+    margin-bottom: 14px;
+    padding-left: 18px;
+    line-height: 1.7;
+  }
+
+  .metric-toggle {
+    display: inline-flex;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 7px;
+    padding: 2px;
+    margin-left: 18px;
+    margin-bottom: 14px;
+  }
+  .metric-toggle button {
+    border: none;
+    background: transparent;
+    padding: 5px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 5px;
+    cursor: pointer;
+    color: #555;
+    font-family: inherit;
+  }
+  .metric-toggle button.active {
+    background: #c10000;
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(193,0,0,0.25);
+  }
+
+  /* ========= 信息卡：2 个红利指数各一卡 ========= */
+  .info-bar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .info-card {
+    flex: 1 1 320px;
+    min-width: 280px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border: 1px solid #eee;
+  }
+  .info-card .label {
+    font-size: 13px;
+    color: #444;
+    margin-bottom: 4px;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+  .info-card .desc {
+    font-size: 11.5px;
+    color: #888;
+    margin-bottom: 7px;
+    line-height: 1.5;
+    min-height: 22px;
+  }
+  .info-card .value {
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .info-card .value .unit { font-size: 14px; font-weight: 500; margin-left: 3px; color: #888; }
+  .info-card .value .sub {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    margin-top: 7px;
+    line-height: 1.9;
+    white-space: normal;
+  }
+  .info-card[data-code="csi_dividend"]  { border-left: 5px solid #c10000; }
+  .info-card[data-code="csi_dividend"]  .value { color: #c10000; }
+  .info-card[data-code="sse_dividend"]  { border-left: 5px solid #1565C0; }
+  .info-card[data-code="sse_dividend"]  .value { color: #1565C0; }
+
+  .info-card.data-src {
+    flex-basis: 100%;
+    background: #fff8e6;
+    border-color: #ffe1a3;
+    border-left-width: 1px;
+  }
+  .info-card.data-src .value {
+    color: #6a4700;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.95;
+  }
+  .info-card.data-src .value b { color: #c10000; font-weight: 700; }
+  .info-card.data-src .value button {
+    display: inline-block;
+    margin: 5px 0 0 10px;
+    padding: 6px 16px;
+    border: none;
+    background: #c10000;
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  .info-card.data-src .value button:hover    { background: #a50000; }
+  .info-card.data-src .value button:disabled { background: #bbb; cursor: not-allowed; }
+  .info-card .value .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+  .pill.low    { background: #e6f4ea; color: #137333; }   /* 低估（PE < 25% 分位）→ 绿 */
+  .pill.mid    { background: #fff3c4; color: #6a4700; }   /* 中性（25~75%）→ 黄 */
+  .pill.high   { background: #fce8e6; color: #c5221f; }   /* 高估（PE > 75% 分位）→ 红 */
+  .pill.empty  { background: #f1f3f4; color: #666; }
+  .pill.na     { background: #eceff1; color: #546e7a; }
+
+  /* ========= 右上角固定信息卡（跟随鼠标显示当前值） ========= */
+  .current-value-card {
+    position: fixed;
+    top: 120px;
+    right: 24px;
+    z-index: 9999;
+    background: #fffdf8;
+    border: 2px solid #c9a227;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 6px 24px rgba(201,162,39,0.22), 0 2px 8px rgba(0,0,0,0.08);
+    min-width: 300px;
+    backdrop-filter: blur(8px);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .current-value-card .cv-title {
+    font-size: 12px; color: #888; margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px dashed #eee; font-weight: 600;
+  }
+  .current-value-card .cv-empty { font-size: 12px; color: #aaa; text-align: center; padding: 10px 0; }
+  .current-value-card .cv-date  { font-size: 14px; font-weight: 700; color: #222; margin-bottom: 10px; }
+  .current-value-card .cv-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0; font-size: 12.5px; border-bottom: 1px dotted #f0f0f0;
+  }
+  .current-value-card .cv-row:last-child { border-bottom: none; }
+  .current-value-card .cv-row .cv-label { color: #555; }
+  .current-value-card .cv-row .cv-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-row .cv-val.c1 { color: #c10000; }
+  .current-value-card .cv-row .cv-val.c2 { color: #1565C0; }
+
+  #chart-wrap {
+    background: #fff;
+    padding: 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+    margin-right: 320px;
+  }
+  #chart { width: 100%; height: 680px; }
+
+  .nsewdrag   { cursor: crosshair !important; }
+
+  .loading { text-align: center; padding: 70px 0; color: #888; font-size: 14px; }
+  .empty-tip {
+    text-align: center; padding: 60px 30px; background: #fffbe6;
+    border: 1px dashed #ffd166; border-radius: 8px;
+    color: #5a3e00; font-size: 14px; line-height: 1.95;
+  }
+  .empty-tip h3 { color: #c10000; margin-bottom: 12px; }
+  .empty-tip button {
+    margin-top: 16px; padding: 9px 26px; background: #c10000; color: #fff;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 700;
+  }
+  .chart-meta-info {
+    margin-top: 14px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 14px 20px;
+    border: 1px solid #eee;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    line-height: 2.1;
+    font-size: 13px;
+    color: #444;
+  }
+  .chart-meta-info .cmi-row { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; }
+  .chart-meta-info .cmi-label { font-weight: 700; color: #333; }
+  .chart-meta-info .cmi-label.range { color: #c10000; }
+  .chart-meta-info .cmi-label.spec  { color: #1565C0; }
+  .chart-meta-info code {
+    background: #f0f0f0; padding: 1px 6px; border-radius: 3px;
+    font-family: Consolas, Menlo, monospace; color: #c10000;
+  }
+  .meta-bar {
+    margin-top: 14px; font-size: 12px; color: #999; text-align: right;
+  }
+  code {
+    background: #f0f0f0; padding: 1px 6px; border-radius: 3px;
+    font-family: Consolas, Menlo, monospace; color: #c10000;
+  }
+  @media (max-width: 720px) {
+    #chart-wrap { margin-right: 0; }
+    .current-value-card {
+      position: static; margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">{{ page_title }}</h1>
+<div class="page-subtitle">{{ page_subtitle }}</div>
+
+<div class="metric-toggle" title="切换不同估值指标口径">
+  <button id="btn-pettm"   class="active" type="button">滚动市盈率 PE(TTM)</button>
+  <button id="btn-pelyr"   type="button">静态市盈率 PE(LYR)</button>
+  <button id="btn-pb"      type="button">市净率 PB</button>
+  <button id="btn-dvttm"   type="button">滚动股息率 TTM</button>
+</div>
+
+<div class="info-bar" id="info-bar">
+  {% for code in DIVIDEND_INDEX_CODES %}
+  <div class="info-card" data-code="{{ code }}">
+    <div class="label">{{ DIVIDEND_INDEX_META[code][0] }} <code style="font-size:11px;color:#777;">{{ DIVIDEND_INDEX_META[code][1] }}</code></div>
+    <div class="desc">{{ DIVIDEND_INDEX_META[code][2] }}</div>
+    <div class="value" id="val-{{ code }}"><span class="pill empty">加载中…</span></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="current-value-card" id="cv-card" style="display:none;">
+  <div class="cv-title">📍 当前光标位置数据（跟随鼠标移动）</div>
+  <div class="cv-empty" id="cv-empty">将鼠标移动到图表上查看精确值</div>
+  <div id="cv-body" style="display:none;">
+    <div class="cv-date" id="cv-date">—</div>
+    {% set idxs = DIVIDEND_INDEX_CODES %}
+    {% for i in range(idxs|length) %}
+    <div class="cv-row">
+      <span class="cv-label">{{ DIVIDEND_INDEX_META[idxs[i]][0] }}：</span>
+      <span class="cv-val c{{ i+1 }}" id="cv-{{ idxs[i] }}">—</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div id="chart-wrap">
+  <div id="chart"><div class="loading">📡 正在从后端加载红利指数市盈率 / 市净率历史数据… {{ DATA_API }}</div></div>
+</div>
+
+<div class="chart-meta-info">
+  <div class="cmi-row">
+    <span class="cmi-label range">📅 数据区间：</span>
+    <span id="cmi-range" style="color:#555;font-weight:600;">加载中…</span>
+  </div>
+  <div class="cmi-row">
+    <span class="cmi-label spec">📐 估值口径：</span>
+    <span>
+      <code>PE(TTM) = ∑成分股总市值 ÷ ∑近4季度滚动净利润（整体法·市值加权）</code>
+      &nbsp;·&nbsp;
+      <code>PE(LYR) = ∑总市值 ÷ ∑近1年度（LYR）净利润</code>
+      &nbsp;·&nbsp;
+      <code>PB = ∑总市值 ÷ ∑股东权益</code>
+      &nbsp;·&nbsp;
+      分位解读：历史分位 &lt; 25% = <b style="color:#137333;">低估</b>（PE越低越便宜），&gt; 75% = <b style="color:#c5221f;">高估</b>。
+    </span>
+  </div>
+</div>
+
+<div class="info-bar" style="margin-top:14px;">
+  <div class="info-card data-src">
+    <div class="label">📡 真实数据源 · 红利指数估值</div>
+    <div class="value">
+      <b>数据来源：</b>{{ page_data_source }}<br/>
+      <b>覆盖指数：</b>2 只（中证红利 000922.CSI · 上证红利 000015.SH）<br/>
+      <b>字段含义：</b><code>pe_ttm</code> 滚动市盈率（默认主图）；<code>pe_lyr</code> 静态；<code>pb</code> 市净率；<code>dv_ttm</code> 滚动股息率（保留可切换查看）；<code>add_*</code> 等权；<code>middle_*</code> 中位数。
+      <button id="btn-refresh" type="button">🔄 立即手动刷新（2 指数·强制重抓）</button>
+    </div>
+  </div>
+</div>
+
+<div class="meta-bar">
+  页面渲染：{{ render_time }} &nbsp;·&nbsp; 后端数据接口：{{ DATA_API }} &nbsp;·&nbsp; Value500 投资导航
+</div>
+
+<script>
+const DATA_API = "{{ DATA_API }}";
+const CODES = {{ DIVIDEND_INDEX_CODES|tojson }};
+const META  = {{ DIVIDEND_INDEX_META|tojson }}; // {code: [name, legu_code, desc]}
+
+const LINE_COLORS = ["#c10000", "#1565C0"];
+const CV_COLOR_CLASSES = ["c1", "c2"];
+
+const PLOT_CFG = {
+  responsive: true, displaylogo: false, locale: 'zh-CN',
+  modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+};
+
+/* ----- 全局状态 ----- */
+// pe_ttm | pe_lyr | pb | dv_ttm
+let CURRENT_METRIC = "pe_ttm";
+let CURRENT_PAYLOAD = null;
+let DATA_BY_DATE = {};     // { "YYYY-MM-DD": { code: value } }
+let DATE_LIST = [];
+let STATIC_ANNOTATIONS = [];
+let STATIC_SHAPES = [];
+let LAST_CURSOR = null;
+let _SUPPRESS_LAYOUT_EVENTS = false;
+
+/* ----- 指标元信息（显示名称/单位/Y轴标题/分位字段/百分号？） ----- */
+const METRIC_META = {
+  pe_ttm:    { long: "滚动市盈率 PE(TTM)", short: "PE(TTM)", unit: "×",   pct: false, q_field: "pe_ttm_q",   cheap: "low" },
+  pe_lyr:    { long: "静态市盈率 PE(LYR)", short: "PE(LYR)", unit: "×",   pct: false, q_field: "pe_lyr_q",   cheap: "low" },
+  pb:        { long: "市净率 PB",           short: "PB",      unit: "×",   pct: false, q_field: "pb_q",       cheap: "low" },
+  dv_ttm:    { long: "滚动股息率 TTM",       short: "股息率",  unit: "%",   pct: true,  q_field: "dv_ttm_q",   cheap: "high" },
+};
+
+/* ----- 工具 ----- */
+const fmt = (v, digits) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(digits);
+const pct = v => (v === null || v === undefined || isNaN(v)) ? null : Math.round(Number(v) * 100);
+
+/**
+ * 估值分位胶囊：
+ * - cheap === "low" → PE/PB 越小越便宜 → 分位 < 25% 低估（绿），> 75% 高估（红）
+ * - cheap === "high" → dv_ttm 越大越便宜 → 分位 > 75% 低估（绿），< 25% 高估（红）
+ */
+function qPill(q, cheap) {
+  const p = pct(q);
+  if (p === null) return '<span class="pill empty">暂无</span>';
+  let cls = 'mid', txt = `${p}%（中性）`;
+  if (cheap === 'low') {
+    if (p < 25)      { cls = 'low';  txt = `${p}%（低估）`; }
+    else if (p >= 75){ cls = 'high'; txt = `${p}%（高估）`; }
+  } else {
+    if (p >= 75)     { cls = 'low';  txt = `${p}%（低估）`; }
+    else if (p < 25) { cls = 'high'; txt = `${p}%（偏高）`; }
+  }
+  return `<span class="pill ${cls}">${txt}</span>`;
+}
+
+/* ----- 布局尺寸换算 ----- */
+function getLayoutDims(gd) {
+  const fl = gd._fullLayout || {};
+  const w  = gd.clientWidth  || fl.width  || 1200;
+  const h  = gd.clientHeight || fl.height || 900;
+  const ml = (fl.margin && fl.margin.l != null) ? fl.margin.l : 80;
+  const mr = (fl.margin && fl.margin.r != null) ? fl.margin.r : 70;
+  const mt = (fl.margin && fl.margin.t != null) ? fl.margin.t : 230;
+  const mb = (fl.margin && fl.margin.b != null) ? fl.margin.b : 90;
+  return { w, h, ml, mr, mt, mb, plotW: Math.max(1, w - ml - mr), plotH: Math.max(1, h - mt - mb) };
+}
+function pixelToPaper(gd, ox, oy) {
+  const D = getLayoutDims(gd);
+  const px = ox - D.ml;
+  const py = oy - D.mt;
+  return {
+    paperX: px / D.plotW, paperY: 1 - (py / D.plotH),
+    inPlot: px >= 0 && px <= D.plotW && py >= 0 && py <= D.plotH,
+  };
+}
+function paperYToAxisValue(gd, paperY, axisName) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl[axisName]; if (!ax || !ax.domain || !ax.range) return null;
+  const [d0, d1] = ax.domain;
+  const [r0, r1] = ax.range;
+  if (d1 === d0) return null;
+  return r0 + ((paperY - d0) / (d1 - d0)) * (r1 - r0);
+}
+function paperXToXData(gd, paperX) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl.xaxis; if (!ax || !ax.range) return null;
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isNaN(v) ? null : v;
+    if (typeof v === 'string') { const t = new Date(v).getTime(); return isNaN(t) ? null : t; }
+    return null;
+  };
+  const r0 = toMs(ax.range[0]);
+  const r1 = toMs(ax.range[1]);
+  if (r0 == null || r1 == null || r1 === r0) return null;
+  return r0 + paperX * (r1 - r0);
+}
+function xDataToDateStr(ms) {
+  if (ms == null || isNaN(ms)) return null;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/* ----- 日期索引 ----- */
+function buildDateIndex() {
+  const payload = CURRENT_PAYLOAD; if (!payload) return;
+  for (const k in DATA_BY_DATE) delete DATA_BY_DATE[k];
+  DATE_LIST.length = 0;
+  const s_all = payload.series || {};
+  const allDates = new Set();
+  CODES.forEach(code => {
+    const xs = (s_all[code] || {}).date || [];
+    xs.forEach(d => d && allDates.add(d));
+  });
+  for (const d of Array.from(allDates).sort()) {
+    DATE_LIST.push(d);
+    const one = {};
+    CODES.forEach(code => {
+      const s = s_all[code] || {};
+      const i = (s.date || []).indexOf(d);
+      one[code] = i >= 0 ? (s[CURRENT_METRIC] || [])[i] : null;
+    });
+    DATA_BY_DATE[d] = one;
+  }
+}
+function findNearestDate(target) {
+  if (!target || !DATE_LIST.length) return null;
+  let lo = 0, hi = DATE_LIST.length - 1;
+  const t = new Date(target).getTime();
+  if (isNaN(t)) return DATE_LIST[DATE_LIST.length - 1];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const mv = new Date(DATE_LIST[mid]).getTime();
+    if (mv === t) return DATE_LIST[mid];
+    else if (mv < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  let best = null, bestDiff = Infinity;
+  for (const i of [lo, hi]) {
+    if (i < 0 || i >= DATE_LIST.length) continue;
+    const d = Math.abs(new Date(DATE_LIST[i]).getTime() - t);
+    if (d < bestDiff) { bestDiff = d; best = DATE_LIST[i]; }
+  }
+  return best;
+}
+
+/* ----- 自定义十字光标：双保险（手动虚线 + 坐标轴交点贴数值标签 + 右上角面板联动） ----- */
+function drawManualCrosshair(ox, oy) {
+  const gd = document.getElementById('chart');
+  if (!gd || !gd._fullLayout) return;
+  const { paperX, paperY, inPlot } = pixelToPaper(gd, ox, oy);
+  if (!inPlot) { clearManualCrosshair(); return; }
+
+  const vCur  = paperYToAxisValue(gd, paperY, 'yaxis');
+  const xMs   = paperXToXData(gd, paperX);
+  const xStr  = xDataToDateStr(xMs);
+  const meta  = METRIC_META[CURRENT_METRIC] || METRIC_META.pe_ttm;
+
+  // ── ① 手动横纵虚线（scattergl 模式下 Plotly 原生 spikes 偶发不稳定，兜底保证始终可见） ──
+  const crossShapes = [];
+  // 垂直虚线（X 方向）—— 与 X 轴相交
+  crossShapes.push({
+    type: 'line', xref: 'paper', yref: 'paper',
+    x0: paperX, x1: paperX, y0: 0, y1: 1,
+    line: { color: '#444', width: 1.0, dash: 'dash' }, layer: 'above',
+  });
+  // 水平虚线（Y 方向）—— 与 Y 轴相交
+  if (vCur != null && !isNaN(vCur)) {
+    crossShapes.push({
+      type: 'line', xref: 'paper', yref: 'y',
+      x0: 0, x1: 1, y0: vCur, y1: vCur,
+      line: { color: '#1565C0', width: 1.0, dash: 'dash' }, layer: 'above',
+    });
+  }
+
+  // ── ② 坐标轴交点数值标签：左 Y 轴（光标值）+ 底 X 轴（日期） ──
+  const crossAnnots = [];
+  if (vCur != null && !isNaN(vCur)) {
+    const tag = meta.pct ? `<b>${fmt(vCur,2)}%</b>` : `<b>${fmt(vCur,2)}×</b>`;
+    crossAnnots.push({
+      x: 0.0, xref: 'paper', xanchor: 'right',
+      y: Number(vCur), yref: 'y', yanchor: 'middle',
+      text: tag,
+      font: { color: '#fff', size: 12.5, family: 'Consolas, Menlo, monospace', weight: 700 },
+      bgcolor: '#1565C0', opacity: 1, borderpad: 3, showarrow: false,
+    });
+  }
+  if (xStr) {
+    crossAnnots.push({
+      x: xMs, xref: 'x', xanchor: 'middle',
+      y: 0.0, yref: 'paper', yanchor: 'top',
+      text: `<b>${xStr.slice(5)}</b>`,
+      font: { color: '#fff', size: 12.5, family: 'Consolas, Menlo, monospace', weight: 700 },
+      bgcolor: '#333', opacity: 1, borderpad: 3, showarrow: false,
+    });
+
+    // ③ 右上角面板联动（辅助：当日两指数实际数据点值快照）
+    const near = findNearestDate(xStr);
+    if (near && DATA_BY_DATE[near]) {
+      const d = DATA_BY_DATE[near];
+      document.getElementById('cv-empty').style.display = 'none';
+      document.getElementById('cv-body').style.display  = 'block';
+      document.getElementById('cv-date').textContent = near;
+      CODES.forEach(code => {
+        const el = document.getElementById('cv-' + code);
+        if (!el) return;
+        const v = d[code];
+        el.textContent = meta.pct ? `${fmt(v,2)}%` : `${fmt(v,2)}`;
+      });
+    }
+  }
+
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, {
+    shapes: STATIC_SHAPES.concat(crossShapes),
+    annotations: STATIC_ANNOTATIONS.concat(crossAnnots),
+  }).then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+}
+function clearManualCrosshair() {
+  const gd = document.getElementById('chart');
+  if (!gd) return;
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { shapes: STATIC_SHAPES, annotations: STATIC_ANNOTATIONS })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+  LAST_CURSOR = null;
+}
+
+/* ----- 布局 ----- */
+function buildLayout(title, fromDate, toDate) {
+  const years = fromDate && toDate
+    ? Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 31536000000))
+    : 10;
+  const btns = [{ label: '全图', step: 'all' }];
+  if (years >= 1)  btns.unshift({ count: 1,  label: '近1年',  step: 'year', stepmode: 'backward' });
+  if (years >= 3)  btns.unshift({ count: 3,  label: '近3年',  step: 'year', stepmode: 'backward' });
+  if (years >= 5)  btns.unshift({ count: 5,  label: '近5年',  step: 'year', stepmode: 'backward' });
+  if (years >= 10) btns.unshift({ count: 10, label: '近10年', step: 'year', stepmode: 'backward' });
+  const meta = METRIC_META[CURRENT_METRIC] || METRIC_META.pe_ttm;
+  return {
+    title: {
+      text: `<b style="font-size:18px;">${title}</b>`,
+      x: 0.0, xanchor: 'left', y: 1.28, yanchor: 'top',
+      font: { size: 18, family: 'Microsoft YaHei, PingFang SC', color: '#222' },
+      pad: { t: 8, b: 8, l: 4, r: 0 },
+    },
+    xaxis: {
+      type: 'date', autorange: true, showgrid: true, gridcolor: '#eee',
+      rangeslider: { visible: true, thickness: 0.06 },
+      rangeselector: { buttons: btns, bgcolor: '#fafafa', borderwidth: 1, bordercolor: '#ddd' },
+      showspikes: false, showline: true, ticks: 'outside',
+      ticklabelposition: 'outside', showticklabels: true,
+    },
+    yaxis: {
+      title: { text: meta.long, standoff: 14, font: { color: '#222', size: 13 } },
+      showgrid: true, gridcolor: '#f3f3f3', zeroline: false,
+      tickfont: { color: '#333', size: 11.5 },
+      showspikes: false, showline: true, ticks: 'outside',
+      ticklabelposition: 'outside', showticklabels: true,
+      ticksuffix: meta.pct ? '%' : '',
+    },
+    hovermode: 'x unified', spikedistance: -1,
+    legend: {
+      orientation: 'h', y: 1.10, x: 0.0, xanchor: 'left',
+      bgcolor: 'rgba(255,255,255,0)', borderwidth: 0,
+      font: { size: 12 },
+      itemclick: 'toggle', itemdoubleclick: 'toggleothers',
+    },
+    margin: { t: 230, r: 70, b: 90, l: 80 },
+    paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
+    shapes: [], annotations: [],
+    hoverlabel: {
+      bgcolor: 'rgba(255,255,255,0.96)', bordercolor: '#bbb',
+      font: { color: '#222', size: 12, family: 'Microsoft YaHei, PingFang SC' },
+      namelength: -1, align: 'left',
+    },
+  };
+}
+
+/* ----- 计算单指数的统计：latest/min/max/mean/最新分位 ----- */
+function codeStats(code, series) {
+  const meta = METRIC_META[CURRENT_METRIC] || METRIC_META.pe_ttm;
+  const ys = (series && series[CURRENT_METRIC]) || [];
+  const qs = (series && series[meta.q_field]) || [];
+  const arr = ys.filter(v => v != null && !isNaN(Number(v))).map(Number);
+  if (!arr.length) return { count: 0 };
+  const min  = Math.min(...arr);
+  const max  = Math.max(...arr);
+  const mean = arr.reduce((a,b) => a+b, 0) / arr.length;
+  const latest = arr[arr.length - 1];
+  let qLatest = null;
+  if (Array.isArray(qs)) {
+    for (let i = qs.length - 1; i >= 0; i--) {
+      if (qs[i] != null && !isNaN(Number(qs[i]))) { qLatest = Number(qs[i]); break; }
+    }
+  }
+  return { count: arr.length, min, max, mean, latest, q_latest: qLatest,
+           from: (series.date && series.date[0]) || null,
+           to: (series.date && series.date[series.date.length - 1]) || null };
+}
+
+/* ----- 绘制主函数 ----- */
+function drawChart(payload) {
+  CURRENT_PAYLOAD = payload;
+  const meta = METRIC_META[CURRENT_METRIC] || METRIC_META.pe_ttm;
+  const chartEl = document.getElementById('chart');
+  const s_all = payload && payload.series;
+  if (!s_all || !CODES.some(c => (s_all[c]||{}).date && (s_all[c].date.length > 0))) {
+    chartEl.innerHTML = `
+      <div class="empty-tip">
+        <h3>📭 当前数据库暂无红利指数估值历史数据</h3>
+        这通常发生在：① 服务器刚启动，冷启动抓取正在后台进行中（首次抓取 2 个指数约 10~30 秒）<br/>
+        ② 数据源临时不可用 / 网络请求失败。<br/>
+        可以稍等片刻刷新页面，或点击下方按钮手动强制重新抓取。
+        <button id="btn-empty-refresh">🔄 立即手动刷新（强制·2 指数）</button>
+      </div>`;
+    fillInfoCards();
+    const b = document.getElementById('btn-empty-refresh');
+    if (b) b.onclick = manualRefreshAll;
+    return;
+  }
+
+  // ① 日期索引
+  buildDateIndex();
+  // ② 信息卡
+  fillInfoCards();
+
+  // ③ 构建 traces：2 条线（中证 + 上证）
+  const traces = [];
+  let fromDate = null, toDate = null;
+  CODES.forEach((code, idx) => {
+    const s = s_all[code] || {};
+    const xs = s.date || [];
+    const ys = s[CURRENT_METRIC] || [];
+    const color = LINE_COLORS[idx % LINE_COLORS.length];
+    const name = (META[code] && META[code][0]) || code;
+    if (!xs.length) {
+      traces.push({
+        x: [], y: [], mode: 'lines', type: 'scattergl',
+        name: `${name}（暂无数据）`,
+        line: { color, width: 1.5, dash: 'solid' },
+        visible: 'legendonly',
+      });
+      return;
+    }
+    traces.push({
+      x: xs, y: ys, mode: 'lines', type: 'scattergl',
+      name,
+      line: { color, width: 1.8, dash: 'solid' },
+      hovertemplate: '<extra></extra>',
+    });
+    if (xs[0] && (!fromDate || xs[0] < fromDate)) fromDate = xs[0];
+    if (xs[xs.length-1] && (!toDate || xs[xs.length-1] > toDate)) toDate = xs[xs.length-1];
+  });
+
+  const layout = buildLayout(`红利指数 · ${meta.long} 历史走势（中证 vs 上证）`, fromDate, toDate);
+  STATIC_ANNOTATIONS = Array.isArray(layout.annotations) ? layout.annotations.slice() : [];
+  STATIC_SHAPES      = Array.isArray(layout.shapes)      ? layout.shapes.slice()      : [];
+  Plotly.newPlot('chart', traces, layout, PLOT_CFG);
+  const ch = document.getElementById('chart');
+  let _rafPending = false;
+  ch.addEventListener('mousemove', (e) => {
+    const rect = ch.getBoundingClientRect();
+    const ox = e.clientX - rect.left;
+    const oy = e.clientY - rect.top;
+    LAST_CURSOR = { offsetX: ox, offsetY: oy };
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard && cvCard.style.display === 'none') cvCard.style.display = 'block';
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => { _rafPending = false; drawManualCrosshair(ox, oy); });
+  });
+  ch.addEventListener('mouseleave', () => {
+    clearManualCrosshair();
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard) cvCard.style.display = 'none';
+    const cvEmpty = document.getElementById('cv-empty');
+    const cvBody  = document.getElementById('cv-body');
+    if (cvEmpty) cvEmpty.style.display = 'block';
+    if (cvBody)  cvBody.style.display  = 'none';
+  });
+  ch.on('plotly_afterplot', () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+  ch.on('plotly_relayout',  () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+}
+
+/* ----- 信息卡 ----- */
+function fillInfoCards() {
+  const meta = METRIC_META[CURRENT_METRIC] || METRIC_META.pe_ttm;
+  const payload = CURRENT_PAYLOAD;
+  const cr = document.getElementById('cmi-range');
+  let totalRows = 0, overallFrom = null, overallTo = null;
+  CODES.forEach(code => {
+    const s = (payload && payload.series && payload.series[code]) || null;
+    const stats = s ? codeStats(code, s) : { count: 0 };
+    const el = document.getElementById('val-' + code);
+    if (!el) return;
+    if (!stats.count) {
+      el.innerHTML = '<span class="pill empty">无数据</span>';
+      return;
+    }
+    totalRows += stats.count;
+    if (stats.from && (!overallFrom || stats.from < overallFrom)) overallFrom = stats.from;
+    if (stats.to   && (!overallTo   || stats.to   > overallTo))   overallTo   = stats.to;
+    const unit = meta.pct ? '%' : '';
+    el.innerHTML = `
+      ${fmt(stats.latest, 2)}<span class="unit">${meta.unit}</span>
+      <span class="sub">
+        区间 ${fmt(stats.min, 2)}${unit} ~ ${fmt(stats.max, 2)}${unit} &nbsp;·&nbsp; 均值 ${fmt(stats.mean, 2)}${unit}
+        ${stats.q_latest != null ? `<br>历史分位：${qPill(stats.q_latest, meta.cheap)}` : ''}
+        <br>数据：${(stats.from||'').slice(0,7)} ~ ${(stats.to||'').slice(0,7)} · ${stats.count}条
+      </span>`;
+  });
+  if (cr) {
+    let yrs = '—';
+    try {
+      if (overallFrom && overallTo) {
+        const ms = new Date(overallTo) - new Date(overallFrom);
+        if (ms > 0) yrs = (ms / 31536000000).toFixed(1);
+      }
+    } catch(e) {}
+    cr.innerHTML = `${overallFrom ? overallFrom.slice(0,10) : '—'} &nbsp;→&nbsp; ${overallTo ? overallTo.slice(0,10) : '—'} &nbsp;·&nbsp; 跨度 ~${yrs} 年 &nbsp;·&nbsp; 共 ${totalRows.toLocaleString()} 条记录`;
+  }
+}
+
+/* ----- 手动刷新 ----- */
+function manualRefreshAll() {
+  const btn = document.getElementById('btn-refresh');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 刷新中，后台抓 2 指数 + 入库 + 重算分位需要 20~60 秒…'; }
+  fetch(DATA_API + '?_=' + Date.now(), { cache: 'no-store' })
+    .then(() => {
+      setTimeout(() => window.location.reload(), 8000);
+      setTimeout(() => window.location.reload(), 20000);
+    })
+    .catch(err => {
+      alert('❌ 请求失败：' + err.message);
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 立即手动刷新（2 指数·强制重抓）'; }
+    });
+}
+
+/* ----- 指标切换 ----- */
+function setMetric(m) {
+  if (!METRIC_META[m]) return;
+  if (CURRENT_METRIC === m) return;
+  CURRENT_METRIC = m;
+  ['btn-pettm','btn-pelyr','btn-pb','btn-dvttm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const target = id === 'btn-pettm' ? 'pe_ttm'
+                : id === 'btn-pelyr' ? 'pe_lyr'
+                : id === 'btn-pb'    ? 'pb'
+                : 'dv_ttm';
+    el.classList.toggle('active', target === m);
+  });
+  if (CURRENT_PAYLOAD) drawChart(CURRENT_PAYLOAD);
+}
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btn-pettm').addEventListener('click', () => setMetric('pe_ttm'));
+  document.getElementById('btn-pelyr').addEventListener('click', () => setMetric('pe_lyr'));
+  document.getElementById('btn-pb').addEventListener('click',    () => setMetric('pb'));
+  document.getElementById('btn-dvttm').addEventListener('click', () => setMetric('dv_ttm'));
+  const btn = document.getElementById('btn-refresh');
+  if (btn) btn.addEventListener('click', manualRefreshAll);
+
+  fetch(DATA_API, { cache: 'no-cache' })
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(drawChart)
+    .catch(err => {
+      const chartEl = document.getElementById('chart');
+      chartEl.innerHTML = `
+        <div class="empty-tip" style="background:#fef1f1;border-color:#ffcdd2;color:#6b1513;">
+          <h3>❌ 加载失败：${err.message || err}</h3>
+          接口 ${DATA_API} 暂时不可用，可能是后端正在首次冷启动（请等 1~2 分钟再刷新），或检查后端日志输出。
+          <button id="btn-empty-reload">↺ 重新加载本页</button>
+        </div>`;
+      const el = document.getElementById('btn-empty-reload');
+      if (el) el.addEventListener('click', () => window.location.reload());
+    });
+});
+</script>
+
+</body>
+</html>
