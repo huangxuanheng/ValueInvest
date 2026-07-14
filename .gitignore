@@ -1,0 +1,4 @@
+_pycache
+_*.py
+_*.html
+flask*.txt
