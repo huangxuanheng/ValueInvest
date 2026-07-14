@@ -270,8 +270,8 @@ class PreciousMetal(Base):
 
 def init_db():
     """初始化：建库（若MySQL）+ 建表 + SQLite 下自动补齐缺失列 + 可选 SQLite→MySQL 数据迁移。
-    防御：如果主库（MySQL）无法 CREATE TABLE（1142 权限不足）或整体不可用，
-    自动重建 engine 回退到本地 SQLite，保证页面能正常工作。"""
+    注意：如果 MySQL 连接失败，不再自动回退到 SQLite，而是直接报错退出，
+    确保服务器和本地使用同一数据库，避免数据不一致。"""
     global engine, SessionLocal
     _done_fallback = False
     def _fallback_to_sqlite(reason: str):
@@ -281,17 +281,17 @@ def init_db():
             return
         _done_fallback = True
         print("\n" + "!" * 72)
-        print(f"[FALLBACK] {reason}")
-        print("  → 自动回退到本地 SQLite：", SQLITE_DB_PATH)
-        print("  提示（可选切回 MySQL）：在 MySQL 服务端执行类似：")
+        print(f"[FATAL] MySQL 连接失败：{reason}")
+        print("  请检查：")
+        print("    1. MySQL 服务器 IP/端口是否正确")
+        print("    2. MySQL 用户密码是否正确")
+        print("    3. MySQL 用户是否有权限访问数据库")
+        print(f"    4. MySQL 服务器是否允许 '{_MYSQL_USER}'@'%' 远程连接")
+        print("  授权命令示例：")
         print("    GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP")
         print(f"      ON `{_MYSQL_DB}`.* TO '{_MYSQL_USER}'@'%';  FLUSH PRIVILEGES;")
-        print("  授权完成后重启进程即可自动把 SQLite 中存量数据迁移到 MySQL。")
         print("!" * 72 + "\n")
-        DB_URL = SQLITE_DB_URL
-        engine = create_engine(SQLITE_DB_URL, echo=False, future=True,
-                               connect_args={"check_same_thread": False})
-        SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+        raise RuntimeError(f"MySQL 连接失败：{reason}")
 
     # SQLite 不需要 CREATE DATABASE
     if DB_URL.startswith("mysql+pymysql://"):
