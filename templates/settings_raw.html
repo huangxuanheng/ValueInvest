@@ -271,6 +271,7 @@
   <div class="tabs-header">
     <div class="tab-item active" data-tab="email">邮箱设置</div>
     <div class="tab-item" data-tab="alert">告警设置</div>
+    <div class="tab-item" data-tab="goldsilver">金银比告警</div>
   </div>
 
   <!-- ===== 邮箱设置 tab ===== -->
@@ -368,6 +369,42 @@
     </div>
     <div class="msg-box" id="alert-msg"></div>
   </div>
+
+  <!-- ===== 金银比告警设置 tab ===== -->
+  <div class="tab-content" id="tab-goldsilver">
+    <div class="alert-block" id="blk-goldsilver">
+      <label class="alert-head">
+        <input type="checkbox" id="chk-goldsilver" />
+        启用金银比告警
+      </label>
+      <div class="alert-body">
+        <div class="threshold-row">
+          <div class="th-field">
+            <label for="goldsilver-buy">金银比买入阈值</label>
+            <input type="number" id="goldsilver-buy" step="0.1" placeholder="如 80" />
+            <div class="hint">当金银比大于此值时，白银低估，黄金高估，可卖出黄金买入白银。</div>
+          </div>
+          <div class="th-field">
+            <label for="goldsilver-sell">金银比卖出阈值</label>
+            <input type="number" id="goldsilver-sell" step="0.1" placeholder="如 50" />
+            <div class="hint">当金银比小于此值时，白银高估，可卖出白银买入黄金。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 告警条件说明 -->
+    <div class="alert-rules">
+      <b>买入条件：</b>金银比 &gt; 买入阈值 → 发送「白银低估买入告警」<br/>
+      <b>卖出条件：</b>金银比 &lt; 卖出阈值 → 发送「白银高估卖出告警」<br/>
+      金银比 = 黄金价格 / 白银价格（单位：美元/盎司）。
+    </div>
+
+    <div style="margin-top:18px;">
+      <button type="button" class="btn-primary" id="btn-save-goldsilver">保 存</button>
+    </div>
+    <div class="msg-box" id="goldsilver-msg"></div>
+  </div>
 </div>
 
 <script>
@@ -401,6 +438,7 @@
   bindAlertToggle('chk-szpe',  'blk-szpe');
   bindAlertToggle('chk-div',   'blk-div');
   bindAlertToggle('chk-pettm', 'blk-pettm');
+  bindAlertToggle('chk-goldsilver', 'blk-goldsilver');
 
   /* =========================================================
    * 提示信息
@@ -518,6 +556,13 @@
         if (pettmEnabled) document.getElementById('blk-pettm').classList.add('enabled');
         if (cfg.pettm_buy != null)  document.getElementById('pettm-buy').value  = cfg.pettm_buy;
         if (cfg.pettm_sell != null) document.getElementById('pettm-sell').value = cfg.pettm_sell;
+
+        // 金银比告警
+        const gsEnabled = !!cfg.gold_silver_enabled;
+        document.getElementById('chk-goldsilver').checked = gsEnabled;
+        if (gsEnabled) document.getElementById('blk-goldsilver').classList.add('enabled');
+        if (cfg.gold_silver_buy != null)  document.getElementById('goldsilver-buy').value  = cfg.gold_silver_buy;
+        if (cfg.gold_silver_sell != null) document.getElementById('goldsilver-sell').value = cfg.gold_silver_sell;
       }
     } catch (err) {
       showMsg('alert-msg', '加载配置网络错误：' + (err && err.message ? err.message : err), 'err');
@@ -602,7 +647,10 @@
       div_sell: numOrEmpty(document.getElementById('div-sell').value),
       pettm_enabled: document.getElementById('chk-pettm').checked,
       pettm_buy:  numOrEmpty(document.getElementById('pettm-buy').value),
-      pettm_sell: numOrEmpty(document.getElementById('pettm-sell').value)
+      pettm_sell: numOrEmpty(document.getElementById('pettm-sell').value),
+      gold_silver_enabled: document.getElementById('chk-goldsilver').checked,
+      gold_silver_buy:  numOrEmpty(document.getElementById('goldsilver-buy').value),
+      gold_silver_sell: numOrEmpty(document.getElementById('goldsilver-sell').value)
     };
     const btn = document.getElementById('btn-save-alert');
     btn.disabled = true; btn.textContent = '保存中...';
@@ -631,6 +679,46 @@
       }
     } catch (err) {
       showMsg('alert-msg', '网络错误：' + (err && err.message ? err.message : err), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = '保 存';
+    }
+  });
+
+  /* =========================================================
+   * 保存金银比告警设置
+   * ========================================================= */
+  document.getElementById('btn-save-goldsilver').addEventListener('click', async () => {
+    clearMsg('goldsilver-msg');
+    const payload = {
+      id: _editingId,
+      gold_silver_enabled: document.getElementById('chk-goldsilver').checked,
+      gold_silver_buy:  numOrEmpty(document.getElementById('goldsilver-buy').value),
+      gold_silver_sell: numOrEmpty(document.getElementById('goldsilver-sell').value)
+    };
+    const btn = document.getElementById('btn-save-goldsilver');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      const resp = await fetch('/api/alert_settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (resp.status === 401 || resp.status === 403) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        showMsg('goldsilver-msg', '金银比告警设置保存成功', 'ok');
+        if (!_editingId && data.id) {
+          _editingId = data.id;
+          window.history.replaceState(null, '', '/chart/settings_raw?id=' + data.id);
+        }
+      } else {
+        showMsg('goldsilver-msg', data.msg || '保存失败', 'err');
+      }
+    } catch (err) {
+      showMsg('goldsilver-msg', '网络错误：' + (err && err.message ? err.message : err), 'err');
     } finally {
       btn.disabled = false; btn.textContent = '保 存';
     }

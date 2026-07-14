@@ -825,20 +825,23 @@ class User(Base):
 class AlertSetting(Base):
     """alert_settings 表：用户告警配置（每用户每股票一行）"""
     __tablename__ = "alert_settings"
-    id                  = Column(Integer, primary_key=True, autoincrement=True)
-    user_id             = Column(Integer, nullable=False, comment="关联 users.id")
-    stock_code          = Column(String(16), nullable=False, comment="股票代码 6 位")
-    stock_name          = Column(String(64), nullable=True, comment="股票名称（自动查询）")
-    szpe_enabled        = Column(Boolean, default=False, comment="是否启用深证PE告警")
-    szpe_buy_threshold  = Column(Float, nullable=True, comment="深证PE买入阈值")
-    szpe_sell_threshold = Column(Float, nullable=True, comment="深证PE卖出阈值")
-    div_enabled         = Column(Boolean, default=False, comment="是否启用股息率告警")
-    div_buy_threshold   = Column(Float, nullable=True, comment="股息率买入阈值(%)")
-    div_sell_threshold  = Column(Float, nullable=True, comment="股息率卖出阈值(%)")
-    pettm_enabled       = Column(Boolean, default=False, comment="是否启用PE(TTM)告警")
-    pettm_buy_threshold = Column(Float, nullable=True, comment="PE(TTM)买入阈值")
-    pettm_sell_threshold= Column(Float, nullable=True, comment="PE(TTM)卖出阈值")
-    updated_at          = Column(Date, nullable=True, comment="最后修改日期")
+    id                       = Column(Integer, primary_key=True, autoincrement=True)
+    user_id                  = Column(Integer, nullable=False, comment="关联 users.id")
+    stock_code               = Column(String(16), nullable=False, comment="股票代码 6 位")
+    stock_name               = Column(String(64), nullable=True, comment="股票名称（自动查询）")
+    szpe_enabled             = Column(Boolean, default=False, comment="是否启用深证PE告警")
+    szpe_buy_threshold       = Column(Float, nullable=True, comment="深证PE买入阈值")
+    szpe_sell_threshold      = Column(Float, nullable=True, comment="深证PE卖出阈值")
+    div_enabled              = Column(Boolean, default=False, comment="是否启用股息率告警")
+    div_buy_threshold        = Column(Float, nullable=True, comment="股息率买入阈值(%)")
+    div_sell_threshold       = Column(Float, nullable=True, comment="股息率卖出阈值(%)")
+    pettm_enabled            = Column(Boolean, default=False, comment="是否启用PE(TTM)告警")
+    pettm_buy_threshold      = Column(Float, nullable=True, comment="PE(TTM)买入阈值")
+    pettm_sell_threshold     = Column(Float, nullable=True, comment="PE(TTM)卖出阈值")
+    gold_silver_enabled      = Column(Boolean, default=False, comment="是否启用金银比告警")
+    gold_silver_buy_threshold= Column(Float, nullable=True, comment="金银比买入阈值")
+    gold_silver_sell_threshold= Column(Float, nullable=True, comment="金银比卖出阈值")
+    updated_at               = Column(Date, nullable=True, comment="最后修改日期")
 
     __table_args__ = (
         UniqueConstraint("user_id", "stock_code", name="uq_user_stock"),
@@ -2693,6 +2696,9 @@ def _alert_to_dict(row, email: str = "") -> dict:
         "pettm_enabled": row.pettm_enabled,
         "pettm_buy": row.pettm_buy_threshold,
         "pettm_sell": row.pettm_sell_threshold,
+        "gold_silver_enabled": row.gold_silver_enabled,
+        "gold_silver_buy": row.gold_silver_buy_threshold,
+        "gold_silver_sell": row.gold_silver_sell_threshold,
         "updated_at": str(row.updated_at) if row.updated_at else None,
     }
 
@@ -2747,12 +2753,13 @@ def api_alert_settings_save():
                 row = AlertSetting(user_id=u.id, stock_code=stock_code)
                 row.stock_name = _get_stock_name(stock_code)
                 s.add(row)
-        row.stock_code = stock_code
-        # 只在编辑模式且查询成功时更新股票名称，避免覆盖已有名称
-        if aid:
-            new_name = _get_stock_name(row.stock_code)
-            if new_name:
-                row.stock_name = new_name
+        if stock_code:
+            row.stock_code = stock_code
+            # 只在编辑模式且查询成功时更新股票名称，避免覆盖已有名称
+            if aid:
+                new_name = _get_stock_name(row.stock_code)
+                if new_name:
+                    row.stock_name = new_name
         row.szpe_enabled = bool(data.get("szpe_enabled", False))
         row.szpe_buy_threshold = _safe_float(data.get("szpe_buy"))
         row.szpe_sell_threshold = _safe_float(data.get("szpe_sell"))
@@ -2762,6 +2769,9 @@ def api_alert_settings_save():
         row.pettm_enabled = bool(data.get("pettm_enabled", False))
         row.pettm_buy_threshold = _safe_float(data.get("pettm_buy"))
         row.pettm_sell_threshold = _safe_float(data.get("pettm_sell"))
+        row.gold_silver_enabled = bool(data.get("gold_silver_enabled", False))
+        row.gold_silver_buy_threshold = _safe_float(data.get("gold_silver_buy"))
+        row.gold_silver_sell_threshold = _safe_float(data.get("gold_silver_sell"))
         row.updated_at = datetime.now().date()
         s.commit()
         s.refresh(row)
@@ -2811,7 +2821,8 @@ def api_alert_settings():
                 return jsonify({"ok": True, "data": {"email": u.email, "stock_code": "",
                     "szpe_enabled": False, "szpe_buy": None, "szpe_sell": None,
                     "div_enabled": False, "div_buy": None, "div_sell": None,
-                    "pettm_enabled": False, "pettm_buy": None, "pettm_sell": None}})
+                    "pettm_enabled": False, "pettm_buy": None, "pettm_sell": None,
+                    "gold_silver_enabled": False, "gold_silver_buy": None, "gold_silver_sell": None}})
 
     # POST: 保存（兼容旧版）
     data = request.get_json(silent=True) or {}
@@ -2846,6 +2857,9 @@ def api_alert_settings():
         row.pettm_enabled = bool(data.get("pettm_enabled", False))
         row.pettm_buy_threshold = _safe_float(data.get("pettm_buy"))
         row.pettm_sell_threshold = _safe_float(data.get("pettm_sell"))
+        row.gold_silver_enabled = bool(data.get("gold_silver_enabled", False))
+        row.gold_silver_buy_threshold = _safe_float(data.get("gold_silver_buy"))
+        row.gold_silver_sell_threshold = _safe_float(data.get("gold_silver_sell"))
         row.updated_at = datetime.now().date()
         s.commit()
     return jsonify({"ok": True, "msg": "告警设置已保存"})
@@ -5517,6 +5531,12 @@ def _check_user_alerts(force=False):
     sz_pe_row = index_latest_row("sz_market")
     sz_pe_val = _safe_float(sz_pe_row.get("pe_ttm")) if sz_pe_row else None
 
+    # 获取最新金银价格
+    pm_latest = latest_row() or {}
+    gold_price = _safe_float(pm_latest.get("gold_price"))
+    silver_price = _safe_float(pm_latest.get("silver_price"))
+    ratio_val = round(gold_price / silver_price, 2) if gold_price and silver_price and silver_price > 0 else None
+
     today_str = datetime.now().strftime('%Y-%m-%d')
 
     with SessionLocal() as s:
@@ -5528,8 +5548,6 @@ def _check_user_alerts(force=False):
                     continue
                 stock_code = (alert.stock_code or "").strip()
                 stock_name = alert.stock_name or stock_code
-                if not stock_code:
-                    continue
 
                 # 获取个股股息率
                 div_yield_val = None
@@ -5622,6 +5640,21 @@ def _check_user_alerts(force=False):
                                 'subject': f"{stock_name}PE(TTM)卖出信号 告警",
                                 'body': f"您关注的股票【{stock_name}】今天{today_str}PE(TTM){pe_ttm_val:.1f}大于您配置的卖出阈值{alert.pettm_sell_threshold}了，请及时留意！"
                             })
+
+                # 金银比告警（独立判断，不依赖股票代码）
+                if alert.gold_silver_enabled and ratio_val is not None:
+                    if alert.gold_silver_buy_threshold and ratio_val > alert.gold_silver_buy_threshold:
+                        alerts_to_send.append({
+                            'type': 'buy',
+                            'subject': "白银低估买入告警",
+                            'body': f"当前金银比是{ratio_val}，大于您配置的买入比值{alert.gold_silver_buy_threshold}，白银低估，黄金高估，可以卖出黄金买入白银！当前黄金的价格是{gold_price}美元/盎司，白银的价格是{silver_price}美元/盎司！"
+                        })
+                    if alert.gold_silver_sell_threshold and ratio_val < alert.gold_silver_sell_threshold:
+                        alerts_to_send.append({
+                            'type': 'sell',
+                            'subject': "白银高估卖出告警",
+                            'body': f"当前金银比是{ratio_val}，小于您配置的卖出比值{alert.gold_silver_sell_threshold}，白银高估，可以卖出白银买入黄金！当前黄金的价格是{gold_price}美元/盎司，白银的价格是{silver_price}美元/盎司！"
+                        })
 
                 # 发送邮件
                 for alert_msg in alerts_to_send:

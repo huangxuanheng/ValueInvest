@@ -223,6 +223,7 @@
       if (item.szpe_enabled)  tags.push('<span class="tag tag-on">深证PE</span>');
       if (item.div_enabled)   tags.push('<span class="tag tag-on">股息率</span>');
       if (item.pettm_enabled) tags.push('<span class="tag tag-on">PE(TTM)</span>');
+      if (item.gold_silver_enabled) tags.push('<span class="tag tag-on">金银比</span>');
       if (tags.length === 0)  tags.push('<span class="tag tag-off">未启用</span>');
 
       // 买入/卖出阈值摘要
@@ -231,6 +232,7 @@
       if (item.szpe_enabled)  { buyVals.push('PE'+item.szpe_buy);   sellVals.push('PE'+item.szpe_sell); }
       if (item.div_enabled)   { buyVals.push('息'+item.div_buy+'%'); sellVals.push('息'+item.div_sell+'%'); }
       if (item.pettm_enabled) { buyVals.push('TTM'+item.pettm_buy); sellVals.push('TTM'+item.pettm_sell); }
+      if (item.gold_silver_enabled) { buyVals.push('金银比>'+item.gold_silver_buy); sellVals.push('金银比<'+item.gold_silver_sell); }
 
       tr.innerHTML = `
         <td class="stock-cell">${item.stock_code || '-'}</td>
