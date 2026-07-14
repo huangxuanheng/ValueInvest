@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>用户注册 · Value500 投资导航</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #fff;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  /* ============== 顶部红色品牌栏 ============== */
+  .top-brand {
+    background: #c10000;
+    color: #fff;
+    padding: 16px 24px 12px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 2px solid #a50000;
+  }
+  .top-brand .logo {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .top-brand .logo .val { color: #fff7e0; }
+  .top-brand .logo .num { color: #fff; }
+  .top-brand .slogan {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #ffe0c7;
+    font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  }
+
+  /* ============== 主区域：居中卡片 ============== */
+  .main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 36px 20px;
+    background: #f1f1f1;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 32px 36px 26px;
+  }
+
+  .card-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 13.5px;
+    color: #555;
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 15px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+    background: #fff;
+  }
+  .form-group input:focus {
+    border-color: #c10000;
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.08);
+  }
+  .form-group .hint {
+    font-size: 12px;
+    color: #888;
+    margin-top: 5px;
+    line-height: 1.5;
+  }
+
+  /* 主按钮 */
+  .btn-primary {
+    width: 100%;
+    padding: 12px 16px;
+    background: #c10000;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 15.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: inherit;
+    margin-top: 6px;
+  }
+  .btn-primary:hover { background: #a50000; }
+  .btn-primary:disabled { background: #bbb; cursor: not-allowed; }
+
+  /* 底部链接 */
+  .bottom-link {
+    text-align: center;
+    margin-top: 18px;
+    font-size: 13.5px;
+    color: #666;
+  }
+  .bottom-link a {
+    color: #c10000;
+    text-decoration: none;
+    font-weight: 600;
+    margin-left: 4px;
+  }
+  .bottom-link a:hover { text-decoration: underline; color: #a50000; }
+
+  /* 错误信息区 */
+  .err-box {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #fce8e6;
+    border: 1px solid #f5b5b0;
+    border-left: 4px solid #c10000;
+    color: #8b1513;
+    font-size: 13.5px;
+    border-radius: 4px;
+    line-height: 1.6;
+    display: none;
+  }
+  .err-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<!-- ===== 红色品牌顶栏 ===== -->
+<header class="top-brand">
+  <div>
+    <div class="logo"><span class="val">Value</span><span class="num">500</span> &nbsp;投资导航</div>
+    <div class="slogan">—— 价值投资者的眼睛</div>
+  </div>
+</header>
+
+<!-- ===== 居中注册卡片 ===== -->
+<div class="main">
+  <div class="card">
+    <h1 class="card-title">用户注册</h1>
+    <form id="register-form" autocomplete="off" onsubmit="return false;">
+      <div class="form-group">
+        <label for="username">用户名</label>
+        <input type="text" id="username" name="username" placeholder="请输入用户名" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label for="email">邮箱</label>
+        <input type="text" id="email" name="email" placeholder="请输入邮箱" autocomplete="email" />
+        <div class="hint">只支持 163 邮箱和 QQ 邮箱（@163.com 或 @qq.com）</div>
+      </div>
+      <div class="form-group">
+        <label for="password">密码</label>
+        <input type="password" id="password" name="password" placeholder="至少 6 位" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label for="password2">确认密码</label>
+        <input type="password" id="password2" name="password2" placeholder="请再次输入密码" autocomplete="new-password" />
+      </div>
+      <button type="submit" class="btn-primary" id="btn-register">注 册</button>
+      <div class="err-box" id="err-box"></div>
+      <div class="bottom-link">已有账号？<a href="/login">去登录</a></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById('register-form');
+  const btn = document.getElementById('btn-register');
+  const errBox = document.getElementById('err-box');
+
+  function showError(msg) {
+    errBox.textContent = msg;
+    errBox.classList.add('show');
+  }
+  function clearError() {
+    errBox.textContent = '';
+    errBox.classList.remove('show');
+  }
+
+  // 校验邮箱：必须是 @163.com 或 @qq.com 结尾
+  function isEmailValid(v) {
+    const s = String(v || '').trim().toLowerCase();
+    return s.endsWith('@163.com') || s.endsWith('@qq.com');
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError();
+
+    const username = document.getElementById('username').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const password2 = document.getElementById('password2').value;
+
+    // 前端校验
+    if (!username) { showError('用户名不能为空'); return; }
+    if (!isEmailValid(email)) {
+      showError('邮箱只支持 @163.com 或 @qq.com 结尾');
+      return;
+    }
+    if (password.length < 6) {
+      showError('密码长度至少为 6 位');
+      return;
+    }
+    if (password !== password2) {
+      showError('两次输入的密码不一致');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '注册中...';
+    try {
+      const resp = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: username,
+          email: email,
+          password: password
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        alert('注册成功，请登录');
+        window.location.href = '/login';
+      } else {
+        showError(data.msg || '注册失败，请稍后重试');
+      }
+    } catch (err) {
+      showError('网络错误：' + (err && err.message ? err.message : err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '注 册';
+    }
+  });
+</script>
+
+</body>
+</html>

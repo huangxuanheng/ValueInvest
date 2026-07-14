@@ -226,6 +226,12 @@
   </div>
   <div class="brand-right">
     <span>页面生成时间：{{ render_time }}</span>
+    {% if current_username %}
+    <a href="/settings" style="color:#fff7e0;">{{ current_username }}</a>
+    <a href="javascript:void(0)" onclick="_doLogout()" style="color:#fff;">退出</a>
+    {% else %}
+    <a href="/login" style="color:#fff;font-weight:700;">登录</a>
+    {% endif %}
   </div>
 </header>
 
@@ -372,7 +378,15 @@
     activateMenu(key);
   });
 
-  // 4) 实时时间（右上角小条）
+  // 4) 退出登录
+  function _doLogout() {
+    fetch('/api/logout', {method: 'POST'})
+      .then(r => r.json())
+      .then(d => { window.location.href = '/'; })
+      .catch(e => { window.location.href = '/'; });
+  }
+
+  // 5) 实时时间（右上角小条）
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
   function tickTime() {
     const d = new Date();

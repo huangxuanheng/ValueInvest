@@ -1,4 +1,4 @@
-_pycache
+__pycache__
 _*.py
 _*.html
 flask*.txt

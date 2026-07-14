@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>个股历史股息率 · Value500 投资导航</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC",
+                 "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    background: #f7f8fa;
+    color: #222;
+    padding: 18px 22px 24px;
+    min-height: 100vh;
+  }
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    border-left: 6px solid #c10000;
+    padding: 2px 0 2px 12px;
+    margin-bottom: 6px;
+  }
+  .page-subtitle {
+    color: #666;
+    font-size: 13.5px;
+    margin-bottom: 16px;
+    padding-left: 18px;
+    line-height: 1.75;
+  }
+
+  /* ============ 搜索栏 ============ */
+  .search-bar {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 9px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .search-bar label { font-size: 13.5px; color: #333; font-weight: 600; margin-right: 4px; }
+  .search-bar .inp-wrap {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1 1 320px;
+    min-width: 280px;
+  }
+  .search-bar input[type=text] {
+    flex: 1;
+    min-width: 160px;
+    padding: 8px 12px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: Consolas, Menlo, monospace;
+    color: #222;
+    transition: border .2s;
+    outline: none;
+  }
+  .search-bar input[type=text]:focus { border-color: #c10000; box-shadow: 0 0 0 3px rgba(193,0,0,.08); }
+  .search-bar input[type=date] {
+    padding: 7px 10px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #222;
+    outline: none;
+  }
+  .search-bar input[type=date]:focus { border-color: #c10000; }
+  .search-bar button {
+    padding: 8.5px 22px;
+    background: #c10000;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .18s;
+    font-family: inherit;
+  }
+  .search-bar button:hover    { background: #a50000; }
+  .search-bar button:disabled { background: #bbb; cursor: not-allowed; }
+  .search-bar .quick-codes {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .search-bar .quick-codes a {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid #e0e0e0;
+    background: #fafafa;
+    color: #555;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .search-bar .quick-codes a:hover { background: #fff3e6; border-color: #ffcc99; color: #9a4c00; }
+
+  /* ============ 统计卡片 ============ */
+  .info-bar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .info-card {
+    flex: 1 1 200px;
+    min-width: 180px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border: 1px solid #eee;
+  }
+  .info-card .label {
+    font-size: 12.5px;
+    color: #555;
+    margin-bottom: 4px;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+  .info-card .value {
+    font-size: 26px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    color: #c10000;
+  }
+  .info-card .value .unit { font-size: 13px; color: #777; font-weight: 500; margin-left: 3px; }
+  .info-card .sub {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    margin-top: 7px;
+    line-height: 1.75;
+    white-space: normal;
+  }
+  .info-card.accent-blue        { border-left: 5px solid #1565C0; }
+  .info-card.accent-blue .value { color: #1565C0; }
+  .info-card.accent-green       { border-left: 5px solid #2e7d32; }
+  .info-card.accent-green .value{ color: #2e7d32; }
+  .info-card.accent-amber       { border-left: 5px solid #e65100; }
+  .info-card.accent-amber .value{ color: #e65100; }
+  .info-card.data-src {
+    flex-basis: 100%;
+    background: #fff8e6;
+    border-color: #ffe1a3;
+    border-left-width: 1px;
+  }
+  .info-card.data-src .value {
+    color: #6a4700;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.95;
+  }
+  .info-card.data-src .value b { color: #c10000; font-weight: 700; }
+
+  /* ============ 十字光标跟随卡 ============ */
+  .current-value-card {
+    position: fixed;
+    top: 120px;
+    right: 24px;
+    z-index: 9999;
+    background: #fffdf8;
+    border: 2px solid #c9a227;
+    border-radius: 12px;
+    padding: 14px 18px;
+    box-shadow: 0 6px 24px rgba(201,162,39,0.22), 0 2px 8px rgba(0,0,0,0.08);
+    min-width: 280px;
+    backdrop-filter: blur(8px);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .current-value-card .cv-title {
+    font-size: 12px; color: #888; margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px dashed #eee; font-weight: 600;
+  }
+  .current-value-card .cv-empty { font-size: 12px; color: #aaa; text-align: center; padding: 10px 0; }
+  .current-value-card .cv-date  { font-size: 14px; font-weight: 700; color: #222; margin-bottom: 10px; }
+  .current-value-card .cv-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0; font-size: 12.5px; border-bottom: 1px dotted #f0f0f0;
+  }
+  .current-value-card .cv-row:last-child { border-bottom: none; }
+  .current-value-card .cv-row .cv-label { color: #555; }
+  .current-value-card .cv-row .cv-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .current-value-card .cv-row .cv-val.red   { color: #c10000; }
+  .current-value-card .cv-row .cv-val.blue  { color: #1565C0; }
+  .current-value-card .cv-row .cv-val.green { color: #2e7d32; }
+
+  #chart-wrap {
+    background: #fff;
+    padding: 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+    margin-right: 320px;
+  }
+  #chart { width: 100%; height: 680px; }
+  .nsewdrag { cursor: crosshair !important; }
+
+  .loading { text-align: center; padding: 70px 0; color: #888; font-size: 14px; }
+  .empty-tip {
+    text-align: center; padding: 60px 30px; background: #fffbe6;
+    border: 1px dashed #ffd166; border-radius: 8px;
+    color: #5a3e00; font-size: 14px; line-height: 1.95;
+  }
+  .empty-tip.err { background: #fef1f1; border-color: #ffcdd2; color: #6b1513; }
+  .empty-tip h3 { margin-bottom: 12px; }
+  .empty-tip.err h3 { color: #c62828; }
+  .empty-tip button {
+    margin-top: 16px; padding: 9px 26px; background: #c10000; color: #fff;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 700;
+  }
+
+  .chart-meta-info {
+    margin-top: 14px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 14px 20px;
+    border: 1px solid #eee;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    line-height: 2.1;
+    font-size: 13px;
+    color: #444;
+  }
+  .chart-meta-info .cmi-row { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; }
+  .chart-meta-info .cmi-label { font-weight: 700; color: #333; }
+  .chart-meta-info .cmi-label.range { color: #c10000; }
+  .chart-meta-info .cmi-label.spec  { color: #1565C0; }
+  .chart-meta-info code {
+    background: #f0f0f0; padding: 1px 6px; border-radius: 3px;
+    font-family: Consolas, Menlo, monospace; color: #c10000;
+  }
+  .meta-bar {
+    margin-top: 14px; font-size: 12px; color: #999; text-align: right;
+  }
+  code {
+    background: #f0f0f0; padding: 1px 6px; border-radius: 3px;
+    font-family: Consolas, Menlo, monospace; color: #c10000;
+  }
+  /* 分红事件 marker 图例 */
+  .div-legend {
+    display: inline-flex;
+    gap: 14px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 7px;
+    padding: 5px 12px;
+    margin-left: 18px;
+    margin-bottom: 14px;
+  }
+  .div-legend .lg-item {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 12.5px;
+    color: #444;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .div-legend .lg-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    display: inline-block;
+  }
+  .div-legend .lg-dot.off { opacity: .25; }
+  .div-legend .lg-item.off { color: #aaa; text-decoration: line-through; }
+
+  @media (max-width: 900px) {
+    #chart-wrap { margin-right: 0; }
+    .current-value-card {
+      position: static; margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">📈 个股历史股息率（日度·动态滚动）</h1>
+<div class="page-subtitle">
+  输入任意 A 股 6 位代码（支持 000/300/600/601/688 开头），查看该个股上市以来<b>每天</b>的「近一年动态股息率」走势。<br/>
+  算法：与 <b>个股低估/复投回测</b> 同一口径（V6 双重约束·杜绝前视偏差），分子 = 最近 1 个完整自然年度报告期内每股累计派现；分母 = 当日不复权收盘价。
+</div>
+
+<!-- ========== 搜索栏 ========== -->
+<div class="search-bar">
+  <label for="sym">🔎 个股代码：</label>
+  <div class="inp-wrap">
+    <input type="text" id="sym" maxlength="16" placeholder="如：000895（双汇发展）/ 601398（工商银行）/ 600519（贵州茅台）" />
+    <label for="sd" style="font-weight:500;color:#666;">起始：</label>
+    <input type="date" id="sd" />
+    <label for="ed" style="font-weight:500;color:#666;">截止：</label>
+    <input type="date" id="ed" />
+    <button id="btn-search" type="button">🚀 绘制股息率</button>
+  </div>
+  <div class="quick-codes">
+    <span style="font-size:12px;color:#888;align-self:center;margin-right:4px;">快捷：</span>
+    <a data-code="000895">000895 双汇</a>
+    <a data-code="601398">601398 工行</a>
+    <a data-code="600036">600036 招行</a>
+    <a data-code="601088">601088 神华</a>
+    <a data-code="600900">600900 长江电力</a>
+    <a data-code="600519">600519 茅台</a>
+    <a data-code="000333">000333 美的</a>
+  </div>
+</div>
+
+<div class="div-legend" title="点击显示/隐藏叠加指标">
+  <div class="lg-item" id="lg-dy">
+    <span class="lg-dot" style="background:#c10000;"></span>股息率%（主Y轴）
+  </div>
+  <div class="lg-item" id="lg-pr">
+    <span class="lg-dot" style="background:#1565C0;"></span>不复权收盘价（次Y轴）
+  </div>
+  <div class="lg-item" id="lg-ev">
+    <span class="lg-dot" style="background:#e65100;"></span>除权除息日标记
+  </div>
+</div>
+
+<!-- ========== 统计卡 ========== -->
+<div class="info-bar" id="info-bar">
+  <div class="info-card" id="card-name">
+    <div class="label">🏷️ 当前标的</div>
+    <div class="value" style="font-size:22px;"><span class="pill empty" id="sec-name">—</span></div>
+    <div class="sub" id="sec-code">请在上方输入代码后点击「绘制股息率」</div>
+  </div>
+  <div class="info-card">
+    <div class="label">💵 最新股息率</div>
+    <div class="value" id="st-last"><span class="pill empty">—</span></div>
+    <div class="sub" id="st-last-sub">（最近收盘价 ÷ 近一年累计派现）</div>
+  </div>
+  <div class="info-card accent-blue">
+    <div class="label">📊 股息率区间</div>
+    <div class="value" id="st-range"><span class="pill empty">—</span></div>
+    <div class="sub" id="st-avg">历史均值 —</div>
+  </div>
+  <div class="info-card accent-green">
+    <div class="label">💰 最新收盘价</div>
+    <div class="value" id="st-close"><span class="pill empty">—</span></div>
+    <div class="sub" id="st-close-sub">不复权（不复权·分母口径）</div>
+  </div>
+  <div class="info-card accent-amber">
+    <div class="label">🎯 近一年累计每股派现</div>
+    <div class="value" id="st-rd1y"><span class="pill empty">—</span></div>
+    <div class="sub" id="st-divs">（分子·税后前·送转股不计入）</div>
+  </div>
+</div>
+
+<!-- ========== 十字光标跟随卡 ========== -->
+<div class="current-value-card" id="cv-card" style="display:none;">
+  <div class="cv-title">📍 当前光标位置（跟随鼠标）</div>
+  <div class="cv-empty" id="cv-empty">将鼠标移动到图表上查看精确值</div>
+  <div id="cv-body" style="display:none;">
+    <div class="cv-date" id="cv-date">—</div>
+    <div class="cv-row">
+      <span class="cv-label">动态股息率：</span>
+      <span class="cv-val red" id="cv-dy">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">收盘价（不复权）：</span>
+      <span class="cv-val blue" id="cv-pr">—</span>
+    </div>
+    <div class="cv-row">
+      <span class="cv-label">近一年累计派现：</span>
+      <span class="cv-val green" id="cv-rd">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 图表 ========== -->
+<div id="chart-wrap">
+  <div id="chart">
+    <div class="loading">📡 等待查询…（首次查询某只个股需要从接口抓取完整上市以来日线与分红数据，约 5~30 秒；之后再次查询瞬间完成）</div>
+  </div>
+</div>
+
+<div class="chart-meta-info">
+  <div class="cmi-row">
+    <span class="cmi-label range">📅 数据区间：</span>
+    <span id="cmi-range" style="color:#555;font-weight:600;">请先查询</span>
+  </div>
+  <div class="cmi-row">
+    <span class="cmi-label spec">📐 算法口径（V6 双重约束·防前视偏差）：</span>
+    <span>
+      <code>股息率% = 近一年每股累计派现 ÷ 当日不复权收盘价 × 100</code>
+      &nbsp;·&nbsp;
+      「近一年」= 以已公告方案中最新报告期 end 倒推 1 个自然年度窗口；
+      生效起始日 known_from = MAX(监管最早发布日 + 15d, ex_date - 15d)，确保绝不会前置计入未公告分红。
+    </span>
+  </div>
+</div>
+
+<div class="info-bar" style="margin-top:14px;">
+  <div class="info-card data-src">
+    <div class="label">📡 真实数据源 · 个股历史股息率</div>
+    <div class="value">
+      <b>主数据源：</b>akshare stock_zh_a_hist（东财不复权日线）+ 东财分红送股（stock_fhps_detail_em / datacenter-web 原生接口兜底）<br/>
+      <b>存储 & 增量：</b>MySQL <code>stock_daily</code>（按 code + date_k 主键增量补最新）· <code>stock_dividend</code>（按 code + ex_date + 金额/股数主键去重）；
+      首次请求某只个股会自动把历史全量入库；之后每天只拉「库最大日期 +1 → 今日」的缺失数据，避免频繁请求。<br/>
+      <b>前视偏差防护：</b>所有前向含权判定均受 known_from 双重约束，保证不会在公告发布日前计入未公开的分红方案。
+    </div>
+  </div>
+</div>
+
+<div class="meta-bar">
+  后端接口：<code>/api/stock_div_yield_hist</code> &nbsp;·&nbsp; 数据缓存：MySQL finance_analysis &nbsp;·&nbsp; Value500 投资导航
+</div>
+
+<script>
+const DATA_API = "/api/stock_div_yield_hist";
+const PLOT_CFG = {
+  responsive: true, displaylogo: false, locale: 'zh-CN',
+  modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+};
+
+/* ===== 全局状态 ===== */
+let CURRENT_PAYLOAD = null;
+let DATA_BY_DATE = {};     // { "YYYY-MM-DD": { dy, pr, rd1y } }
+let DATE_LIST = [];
+let STATIC_ANNOTATIONS = [];
+let STATIC_SHAPES = [];
+let LAST_CURSOR = null;
+let _SUPPRESS_LAYOUT_EVENTS = false;
+let SHOW_PRICE = true;
+let SHOW_DIV_EVENTS = true;
+let SHOW_DIV_YIELD = true;
+
+/* ===== 工具 ===== */
+const fmt = (v, digits) => (v === null || v === undefined || isNaN(v) || (typeof v === "number" && !isFinite(v))) ? "—" : Number(v).toFixed(digits);
+const fmtDate = (d) => (typeof d === "string" ? d : (d ? d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0") : "—"));
+
+/* ===== 布局尺寸换算（复用成熟公式） ===== */
+function getLayoutDims(gd) {
+  const fl = gd._fullLayout || {};
+  const w  = gd.clientWidth  || fl.width  || 1200;
+  const h  = gd.clientHeight || fl.height || 900;
+  const ml = (fl.margin && fl.margin.l != null) ? fl.margin.l : 80;
+  const mr = (fl.margin && fl.margin.r != null) ? fl.margin.r : 70;
+  const mt = (fl.margin && fl.margin.t != null) ? fl.margin.t : 140;
+  const mb = (fl.margin && fl.margin.b != null) ? fl.margin.b : 90;
+  return { w, h, ml, mr, mt, mb, plotW: Math.max(1, w - ml - mr), plotH: Math.max(1, h - mt - mb) };
+}
+function pixelToPaper(gd, ox, oy) {
+  const D = getLayoutDims(gd);
+  const px = ox - D.ml;
+  const py = oy - D.mt;
+  return {
+    paperX: px / D.plotW, paperY: 1 - (py / D.plotH),
+    inPlot: px >= 0 && px <= D.plotW && py >= 0 && py <= D.plotH,
+  };
+}
+function paperYToAxisValue(gd, paperY, axisName) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl[axisName]; if (!ax || !ax.domain || !ax.range) return null;
+  const [d0, d1] = ax.domain;
+  const [r0, r1] = ax.range;
+  if (d1 === d0) return null;
+  return r0 + ((paperY - d0) / (d1 - d0)) * (r1 - r0);
+}
+function paperXToXData(gd, paperX) {
+  const fl = gd._fullLayout; if (!fl) return null;
+  const ax = fl.xaxis; if (!ax || !ax.range) return null;
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isNaN(v) ? null : v;
+    if (typeof v === 'string') { const t = new Date(v).getTime(); return isNaN(t) ? null : t; }
+    return null;
+  };
+  const r0 = toMs(ax.range[0]);
+  const r1 = toMs(ax.range[1]);
+  if (r0 == null || r1 == null || r1 === r0) return null;
+  return r0 + paperX * (r1 - r0);
+}
+function xDataToDateStr(ms) {
+  if (ms == null || isNaN(ms)) return null;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/* ===== 日期索引 ===== */
+function buildDateIndex() {
+  const p = CURRENT_PAYLOAD; if (!p) return;
+  for (const k in DATA_BY_DATE) delete DATA_BY_DATE[k];
+  DATE_LIST.length = 0;
+  const ds = p.dates || [], cs = p.close || [], dys = p.div_yield_pct || [], rds = p.rolling_div_1y || [];
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i]; if (!d) continue;
+    DATE_LIST.push(d);
+    DATA_BY_DATE[d] = { dy: dys[i], pr: cs[i], rd1y: rds[i] };
+  }
+}
+function findNearestDate(targetStr) {
+  if (!targetStr || !DATE_LIST.length) return null;
+  let lo = 0, hi = DATE_LIST.length - 1;
+  const t = new Date(targetStr).getTime();
+  if (isNaN(t)) return DATE_LIST[DATE_LIST.length - 1];
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const mv = new Date(DATE_LIST[mid]).getTime();
+    if (mv === t) return DATE_LIST[mid];
+    else if (mv < t) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  let best = null, bestDiff = Infinity;
+  for (const i of [lo, hi]) {
+    if (i < 0 || i >= DATE_LIST.length) continue;
+    const d = Math.abs(new Date(DATE_LIST[i]).getTime() - t);
+    if (d < bestDiff) { bestDiff = d; best = DATE_LIST[i]; }
+  }
+  return best;
+}
+
+/* ===== 自定义十字光标：虚线 + 坐标轴交点标签 + 右上角跟随卡 ===== */
+function drawManualCrosshair(ox, oy) {
+  const gd = document.getElementById('chart');
+  if (!gd || !gd._fullLayout) return;
+  const { paperX, paperY, inPlot } = pixelToPaper(gd, ox, oy);
+  if (!inPlot) { clearManualCrosshair(); return; }
+
+  const vCur  = paperYToAxisValue(gd, paperY, 'yaxis');   // 股息率%（主Y）
+  const vCur2 = paperYToAxisValue(gd, paperY, 'yaxis2');  // 收盘价（次Y，若有）
+  const xMs   = paperXToXData(gd, paperX);
+  const xStr  = xDataToDateStr(xMs);
+
+  // ① 横纵虚线（双虚线：垂直 paper, 水平 y 或 y2 取决于哪条有效）
+  const crossShapes = [];
+  // 垂直（与 X 轴交点有标签）
+  crossShapes.push({
+    type: 'line', xref: 'paper', yref: 'paper',
+    x0: paperX, x1: paperX, y0: 0, y1: 1,
+    line: { color: '#444', width: 1.0, dash: 'dash' }, layer: 'above',
+  });
+  // 水平（主Y 股息率% —— 始终显示，与主Y轴交点有蓝色标签；若有次Y，再叠加显示）
+  if (vCur != null && !isNaN(vCur)) {
+    crossShapes.push({
+      type: 'line', xref: 'paper', yref: 'y',
+      x0: 0, x1: 1, y0: vCur, y1: vCur,
+      line: { color: '#c10000', width: 1.0, dash: 'dash' }, layer: 'above',
+    });
+  }
+
+  // ② 坐标轴交点数值标签（主Y + 次Y（如有） + 底X）
+  const crossAnnots = [];
+  // 主Y（左）：股息率%
+  if (vCur != null && !isNaN(vCur)) {
+    crossAnnots.push({
+      x: 0.0, xref: 'paper', xanchor: 'right',
+      y: Number(vCur), yref: 'y', yanchor: 'middle',
+      text: `<b>${fmt(vCur,2)}%</b>`,
+      font: { color: '#fff', size: 12.5, family: 'Consolas, Menlo, monospace', weight: 700 },
+      bgcolor: '#c10000', opacity: 1, borderpad: 3, showarrow: false,
+    });
+  }
+  // 次Y（右）：收盘价（若启用）
+  if (SHOW_PRICE && vCur2 != null && !isNaN(vCur2)) {
+    crossAnnots.push({
+      x: 1.0, xref: 'paper', xanchor: 'left',
+      y: Number(vCur2), yref: 'y2', yanchor: 'middle',
+      text: `<b>¥${fmt(vCur2,2)}</b>`,
+      font: { color: '#fff', size: 12.5, family: 'Consolas, Menlo, monospace', weight: 700 },
+      bgcolor: '#1565C0', opacity: 1, borderpad: 3, showarrow: false,
+    });
+  }
+  // 底X：日期（YYYY-MM-DD）
+  if (xStr) {
+    crossAnnots.push({
+      x: xMs, xref: 'x', xanchor: 'middle',
+      y: 0.0, yref: 'paper', yanchor: 'top',
+      text: `<b>${xStr.slice(5)}</b>`,
+      font: { color: '#fff', size: 12.5, family: 'Consolas, Menlo, monospace', weight: 700 },
+      bgcolor: '#333', opacity: 1, borderpad: 3, showarrow: false,
+    });
+
+    // ③ 右上角跟随卡（辅助面板）：当天真实数据点值（非插值）
+    const near = findNearestDate(xStr);
+    if (near && DATA_BY_DATE[near]) {
+      const row = DATA_BY_DATE[near];
+      document.getElementById('cv-empty').style.display = 'none';
+      document.getElementById('cv-body').style.display  = 'block';
+      document.getElementById('cv-date').textContent = near;
+      document.getElementById('cv-dy').textContent = fmt(row.dy, 2) + "%";
+      document.getElementById('cv-pr').textContent = "¥" + fmt(row.pr, 2);
+      document.getElementById('cv-rd').textContent = "¥" + fmt(row.rd1y, 3) + " / 股";
+    }
+  }
+
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, {
+    shapes: STATIC_SHAPES.concat(crossShapes),
+    annotations: STATIC_ANNOTATIONS.concat(crossAnnots),
+  }).then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+}
+function clearManualCrosshair() {
+  const gd = document.getElementById('chart');
+  if (!gd) return;
+  _SUPPRESS_LAYOUT_EVENTS = true;
+  Plotly.relayout(gd, { shapes: STATIC_SHAPES, annotations: STATIC_ANNOTATIONS })
+    .then(() => { _SUPPRESS_LAYOUT_EVENTS = false; });
+  LAST_CURSOR = null;
+}
+
+/* ===== 顶部统计卡填充 ===== */
+function fillCards(p) {
+  const latest = p.latest || {};
+  document.getElementById('sec-name').textContent  = p.sec_name || "—";
+  document.getElementById('sec-name').className    = "";
+  document.getElementById('sec-code').textContent  = "代码 " + (p.code || "—") + " · 更新到 " + (latest.date || "—");
+
+  const ld = latest.div_yield_pct, mn = latest.min_yield, mx = latest.max_yield, ag = latest.avg_yield;
+  document.getElementById('st-last').innerHTML      = ld == null ? '<span class="pill empty">暂无</span>' : `${fmt(ld,2)}<span class="unit">%</span>`;
+  document.getElementById('st-last-sub').textContent = "对应收盘价 ¥" + fmt(latest.close, 2) + "，累计派现 ¥" + fmt(latest.rolling_div_1y, 3);
+  document.getElementById('st-range').innerHTML     = (mn == null || mx == null) ? '<span class="pill empty">暂无</span>' : `${fmt(mn,2)}~${fmt(mx,2)}<span class="unit">%</span>`;
+  document.getElementById('st-avg').textContent     = "历史均值 " + (ag == null ? "—" : fmt(ag, 2) + "%");
+
+  document.getElementById('st-close').innerHTML     = latest.close == null ? '<span class="pill empty">暂无</span>' : `${fmt(latest.close,2)}<span class="unit">元</span>`;
+  document.getElementById('st-close-sub').textContent = "区间 " + (latest.min_close == null ? "—" : (fmt(latest.min_close, 2) + " ~ " + fmt(latest.max_close, 2))) + " 元";
+  document.getElementById('st-rd1y').innerHTML      = latest.rolling_div_1y == null ? '<span class="pill empty">暂无</span>' : `${fmt(latest.rolling_div_1y,3)}<span class="unit">元</span>`;
+  const numDivs = (p.dividend_events || []).length;
+  document.getElementById('st-divs').textContent    = "展示区间内 " + numDivs + " 次分红/送转（点图表查看当日详情）";
+}
+
+/* ===== 主图绘制 ===== */
+function buildLayout(title, fromDate, toDate) {
+  const years = fromDate && toDate
+    ? Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 31536000000))
+    : 5;
+  const btns = [{ label: '全图', step: 'all' }];
+  if (years >= 1)  btns.unshift({ count: 1,  label: '近1年',  step: 'year', stepmode: 'backward' });
+  if (years >= 3)  btns.unshift({ count: 3,  label: '近3年',  step: 'year', stepmode: 'backward' });
+  if (years >= 5)  btns.unshift({ count: 5,  label: '近5年',  step: 'year', stepmode: 'backward' });
+  if (years >= 10) btns.unshift({ count: 10, label: '近10年', step: 'year', stepmode: 'backward' });
+
+  const yaxes_cfg = {
+    yaxis: {
+      title: { text: "股息率（近一年 ÷ 当日不复权收盘，%）", standoff: 14, font: { color: '#c10000', size: 13 } },
+      showgrid: true, gridcolor: '#f3f3f3', zeroline: false,
+      tickfont: { color: '#c10000', size: 11.5 },
+      showspikes: false, showline: true, ticks: 'outside',
+      ticklabelposition: 'outside', showticklabels: true,
+      ticksuffix: '%',
+    },
+  };
+  if (SHOW_PRICE) {
+    yaxes_cfg.yaxis2 = {
+      title: { text: "不复权收盘价（元/股）", standoff: 14, font: { color: '#1565C0', size: 13 } },
+      showgrid: false, zeroline: false,
+      tickfont: { color: '#1565C0', size: 11.5 },
+      showspikes: false, showline: true, ticks: 'outside',
+      ticklabelposition: 'outside', showticklabels: true,
+      overlaying: 'y', side: 'right',
+      rangemode: 'tozero',
+    };
+  }
+
+  return Object.assign({
+    title: {
+      text: `<b style="font-size:18px;">${title}</b>`,
+      x: 0.0, xanchor: 'left', y: 1.18, yanchor: 'top',
+      font: { size: 18, family: 'Microsoft YaHei, PingFang SC', color: '#222' },
+      pad: { t: 6, b: 6, l: 4, r: 0 },
+    },
+    xaxis: {
+      type: 'date', autorange: true, showgrid: true, gridcolor: '#eee',
+      rangeslider: { visible: true, thickness: 0.06 },
+      rangeselector: { buttons: btns, bgcolor: '#fafafa', borderwidth: 1, bordercolor: '#ddd' },
+      showspikes: false, showline: true, ticks: 'outside',
+      ticklabelposition: 'outside', showticklabels: true,
+    },
+    hovermode: 'x unified', spikedistance: -1,
+    legend: {
+      orientation: 'h', y: 1.08, x: 0.0, xanchor: 'left',
+      bgcolor: 'rgba(255,255,255,0)', borderwidth: 0,
+      font: { size: 12.5 },
+      itemclick: 'toggle', itemdoubleclick: 'toggleothers',
+    },
+    margin: { t: 140, r: SHOW_PRICE ? 90 : 70, b: 90, l: 90 },
+    paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
+    shapes: [], annotations: [],
+    hoverlabel: {
+      bgcolor: 'rgba(255,255,255,0.96)', bordercolor: '#bbb',
+      font: { color: '#222', size: 12.5, family: 'Microsoft YaHei, PingFang SC' },
+      namelength: -1, align: 'left',
+    },
+  }, yaxes_cfg);
+}
+
+function drawChart(payload) {
+  CURRENT_PAYLOAD = payload;
+  const chartEl = document.getElementById('chart');
+  if (!payload.ok) {
+    chartEl.innerHTML = `
+      <div class="empty-tip err">
+        <h3>❌ 加载失败</h3>
+        ${payload.msg || "未知错误"}
+        <br/><br/>
+        常见原因：① 代码错误（请输入 6 位 A 股代码，不要带 sh/sz 后缀）；
+        ② 该代码已退市或接口暂无数据；
+        ③ 网络/数据库暂时不可用。
+        <button onclick="document.getElementById('btn-search').click()">↺ 重试</button>
+      </div>`;
+    return;
+  }
+  const ds = payload.dates, dys = payload.div_yield_pct, cs = payload.close;
+  if (!ds || !ds.length) {
+    chartEl.innerHTML = `
+      <div class="empty-tip">
+        <h3>📭 当前区间无数据</h3>
+        请尝试放宽日期范围，或检查代码是否正确。
+      </div>`;
+    return;
+  }
+  fillCards(payload);
+  buildDateIndex();
+
+  const traces = [];
+  // Trace 1: 股息率%（主Y轴，红色实线）
+  if (SHOW_DIV_YIELD) {
+    traces.push({
+      x: ds, y: dys, mode: 'lines', type: 'scattergl',
+      name: "动态股息率（近一年/当日不复权收盘，%）",
+      yaxis: 'y',
+      line: { color: '#c10000', width: 1.8, dash: 'solid' },
+      fill: 'tozeroy', fillcolor: 'rgba(193,0,0,0.04)',
+      hovertemplate: '<extra></extra>',
+    });
+  }
+  // Trace 2: 收盘价（次Y轴，蓝色细线，默认显示）
+  if (SHOW_PRICE) {
+    traces.push({
+      x: ds, y: cs, mode: 'lines', type: 'scattergl',
+      name: "不复权收盘价（元/股）",
+      yaxis: 'y2',
+      line: { color: '#1565C0', width: 1.2, dash: 'solid' },
+      opacity: 0.55,
+      hovertemplate: '<extra></extra>',
+    });
+  }
+  // Trace 3: 除权除息日 marker（橙色竖线 marker）
+  if (SHOW_DIV_EVENTS && Array.isArray(payload.dividend_events) && payload.dividend_events.length) {
+    const evX = [], evY = [];
+    const htxt = [];
+    payload.dividend_events.forEach(ev => {
+      // 找到当天（或最近后一交易日）的股息率作为 Y 值用于 marker
+      const base = findNearestDate(ev.ex_date);
+      if (base && DATA_BY_DATE[base]) {
+        evX.push(ev.ex_date);
+        evY.push(DATA_BY_DATE[base].dy);
+        const parts = [];
+        if (ev.per_share_dividend > 0) parts.push(`派 ${fmt(ev.per_share_dividend,3)}元`);
+        if (ev.per_share_gift > 0)     parts.push(`送 ${fmt(ev.per_share_gift,3)}股`);
+        if (ev.per_share_transfer > 0) parts.push(`转 ${fmt(ev.per_share_transfer,3)}股`);
+        if (ev.report_year)           parts.push(`报告期 ${ev.report_year}`);
+        htxt.push(ev.ex_date + "<br>" + parts.join(" · "));
+      }
+    });
+    if (evX.length) {
+      traces.push({
+        x: evX, y: evY, mode: 'markers', type: 'scattergl',
+        name: "除权除息日（" + evX.length + " 次）",
+        yaxis: 'y',
+        marker: { color: '#e65100', size: 10, symbol: 'triangle-down',
+                  line: { color: '#ffffff', width: 1.4 } },
+        hovertemplate: '%{text}<extra></extra>',
+        text: htxt,
+      });
+    }
+  }
+
+  const fromDate = ds[0], toDate = ds[ds.length - 1];
+  const title = `${payload.sec_name || payload.code}（${payload.code}） · 历史日度动态股息率走势`;
+  const layout = buildLayout(title, fromDate, toDate);
+  STATIC_ANNOTATIONS = Array.isArray(layout.annotations) ? layout.annotations.slice() : [];
+  STATIC_SHAPES      = Array.isArray(layout.shapes)      ? layout.shapes.slice()      : [];
+  document.getElementById('cmi-range').innerHTML =
+    `${fromDate.slice(0,10)} &nbsp;→&nbsp; ${toDate.slice(0,10)} &nbsp;·&nbsp; 跨度 ${((new Date(toDate)-new Date(fromDate))/31536000000).toFixed(1)} 年 &nbsp;·&nbsp; 共 ${ds.length.toLocaleString()} 个交易日`;
+
+  Plotly.newPlot('chart', traces, layout, PLOT_CFG);
+  const ch = document.getElementById('chart');
+  let _rafPending = false;
+  ch._crosshairBound = true;
+  ch.addEventListener('mousemove', (e) => {
+    const rect = ch.getBoundingClientRect();
+    const ox = e.clientX - rect.left;
+    const oy = e.clientY - rect.top;
+    LAST_CURSOR = { offsetX: ox, offsetY: oy };
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard && cvCard.style.display === 'none') cvCard.style.display = 'block';
+    if (_rafPending) return;
+    _rafPending = true;
+    requestAnimationFrame(() => { _rafPending = false; drawManualCrosshair(ox, oy); });
+  });
+  ch.addEventListener('mouseleave', () => {
+    clearManualCrosshair();
+    const cvCard = document.getElementById('cv-card');
+    if (cvCard) cvCard.style.display = 'none';
+    const cvEmpty = document.getElementById('cv-empty');
+    const cvBody  = document.getElementById('cv-body');
+    if (cvEmpty) cvEmpty.style.display = 'block';
+    if (cvBody)  cvBody.style.display  = 'none';
+  });
+  ch.on('plotly_afterplot', () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+  ch.on('plotly_relayout',  () => {
+    if (_SUPPRESS_LAYOUT_EVENTS) return;
+    if (LAST_CURSOR) drawManualCrosshair(LAST_CURSOR.offsetX, LAST_CURSOR.offsetY);
+  });
+}
+
+/* ===== 查询执行 ===== */
+function doSearch() {
+  const sym = (document.getElementById('sym').value || "").trim();
+  const sd  = document.getElementById('sd').value;
+  const ed  = document.getElementById('ed').value;
+  if (!/^\d{6}(\.(SH|SZ))?$/i.test(sym)) {
+    alert("请输入 6 位A股代码（可选带 .SH/.SZ 后缀），如 000895");
+    document.getElementById('sym').focus();
+    return;
+  }
+  const btn = document.getElementById('btn-search');
+  btn.disabled = true;
+  btn.textContent = "⏳ 查询中（首次抓全量历史数据约10~30秒，之后秒回）…";
+  const chartEl = document.getElementById('chart');
+  chartEl.innerHTML = `<div class="loading">📡 正在加载「${sym}」的历史日线/分红数据，计算每日股息率…</div>`;
+  let q = "symbol=" + encodeURIComponent(sym);
+  if (sd) q += "&start_date=" + sd;
+  if (ed) q += "&end_date=" + ed;
+  fetch(DATA_API + "?" + q + "&_=" + Date.now(), { cache: "no-store" })
+    .then(r => {
+      if (!r.ok) return r.text().then(t => { try { return JSON.parse(t); } catch(e) { return { ok:false, msg: "HTTP " + r.status + "：" + (t.slice(0,200) || r.statusText) }; } });
+      return r.json();
+    })
+    .then(payload => {
+      btn.disabled = false;
+      btn.textContent = "🚀 绘制股息率";
+      drawChart(payload);
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = "🚀 绘制股息率";
+      drawChart({ ok: false, msg: err.message || String(err) });
+    });
+}
+
+/* ===== 事件绑定 ===== */
+window.addEventListener('DOMContentLoaded', () => {
+  const btnS = document.getElementById('btn-search');
+  btnS.addEventListener('click', doSearch);
+  document.getElementById('sym').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSearch();
+  });
+  document.querySelectorAll('.quick-codes a[data-code]').forEach(a => {
+    a.addEventListener('click', () => {
+      document.getElementById('sym').value = a.getAttribute('data-code');
+      doSearch();
+    });
+  });
+
+  // 图例开关
+  const lgDy = document.getElementById('lg-dy');
+  const lgPr = document.getElementById('lg-pr');
+  const lgEv = document.getElementById('lg-ev');
+  function refreshLegendUI() {
+    lgDy.classList.toggle('off', !SHOW_DIV_YIELD);
+    lgDy.querySelector('.lg-dot').classList.toggle('off', !SHOW_DIV_YIELD);
+    lgPr.classList.toggle('off', !SHOW_PRICE);
+    lgPr.querySelector('.lg-dot').classList.toggle('off', !SHOW_PRICE);
+    lgEv.classList.toggle('off', !SHOW_DIV_EVENTS);
+    lgEv.querySelector('.lg-dot').classList.toggle('off', !SHOW_DIV_EVENTS);
+  }
+  lgDy.addEventListener('click', () => { SHOW_DIV_YIELD = !SHOW_DIV_YIELD; refreshLegendUI(); if (CURRENT_PAYLOAD && CURRENT_PAYLOAD.ok) drawChart(CURRENT_PAYLOAD); });
+  lgPr.addEventListener('click', () => { SHOW_PRICE     = !SHOW_PRICE;     refreshLegendUI(); if (CURRENT_PAYLOAD && CURRENT_PAYLOAD.ok) drawChart(CURRENT_PAYLOAD); });
+  lgEv.addEventListener('click', () => { SHOW_DIV_EVENTS= !SHOW_DIV_EVENTS;refreshLegendUI(); if (CURRENT_PAYLOAD && CURRENT_PAYLOAD.ok) drawChart(CURRENT_PAYLOAD); });
+  refreshLegendUI();
+
+  // 默认示例：预填 000895，但不自动触发查询，等用户点击
+  document.getElementById('sym').value = "000895";
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>设置 · Value500 投资导航</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f1f1f1;
+    color: #333;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    border-left: 6px solid #c10000;
+    padding: 2px 0 2px 12px;
+    margin-bottom: 18px;
+  }
+
+  .page-title-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .page-title-bar .page-title { margin-bottom: 0; }
+  .title-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #555;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .btn-secondary:hover { background: #f5f5f5; border-color: #bbb; }
+  .btn-danger {
+    padding: 8px 16px;
+    background: #fce8e6;
+    color: #c10000;
+    border: 1px solid #f5b5b0;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .btn-danger:hover { background: #c10000; color: #fff; }
+
+  .settings-container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+  }
+
+  /* ============== 标签页头部 ============== */
+  .tabs-header {
+    display: flex;
+    background: #f1f1f1;
+    border-bottom: 2px solid #e5e5e5;
+  }
+  .tab-item {
+    flex: 1;
+    padding: 14px 16px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 500;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 3px solid transparent;
+    user-select: none;
+  }
+  .tab-item:hover { background: #e9e9e9; color: #333; }
+  .tab-item.active {
+    color: #c10000;
+    border-bottom-color: #c10000;
+    background: #fff;
+    font-weight: 700;
+  }
+
+  .tab-content { display: none; padding: 28px 30px; }
+  .tab-content.active { display: block; }
+
+  /* ============== 表单通用 ============== */
+  .form-group {
+    margin-bottom: 18px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 14px;
+    color: #555;
+    margin-bottom: 7px;
+    font-weight: 600;
+  }
+  .form-group input[type="text"],
+  .form-group input[type="email"],
+  .form-group input[type="number"] {
+    width: 100%;
+    max-width: 380px;
+    padding: 10px 14px;
+    font-size: 14.5px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+    background: #fff;
+  }
+  .form-group input:focus {
+    border-color: #c10000;
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.08);
+  }
+  .form-group input[readonly] {
+    background: #f7f7f7;
+    color: #666;
+  }
+  .hint {
+    font-size: 12.5px;
+    color: #888;
+    margin-top: 6px;
+    line-height: 1.6;
+  }
+
+  /* ============== 按钮 ============== */
+  .btn-primary {
+    padding: 10px 28px;
+    background: #c10000;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: inherit;
+  }
+  .btn-primary:hover { background: #a50000; }
+  .btn-primary:disabled { background: #bbb; cursor: not-allowed; }
+
+  /* ============== 告警设置：勾选区 ============== */
+  .alert-block {
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    background: #fafafa;
+  }
+  .alert-block .alert-head {
+    display: flex;
+    align-items: center;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: #333;
+    cursor: pointer;
+  }
+  .alert-block .alert-head input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin-right: 9px;
+    cursor: pointer;
+    accent-color: #c10000;
+    vertical-align: middle;
+  }
+  .alert-block .alert-body {
+    margin-top: 12px;
+    padding-left: 25px;
+    display: none;
+  }
+  .alert-block.enabled .alert-body { display: block; }
+
+  .threshold-row {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .threshold-row .th-field {
+    flex: 1;
+    min-width: 200px;
+  }
+  .threshold-row .th-field label {
+    display: block;
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .threshold-row .th-field input {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+  }
+  .threshold-row .th-field input:focus {
+    border-color: #c10000;
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.08);
+  }
+
+  /* 告警条件说明 */
+  .alert-rules {
+    margin-top: 8px;
+    padding: 14px 18px;
+    background: #fff8e6;
+    border-left: 4px solid #c9a227;
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    line-height: 1.95;
+    color: #5a3e00;
+  }
+  .alert-rules b { color: #c10000; }
+
+  /* 提示信息 */
+  .msg-box {
+    margin-top: 16px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+    border-radius: 4px;
+    line-height: 1.6;
+    display: none;
+  }
+  .msg-box.show { display: block; }
+  .msg-box.err {
+    background: #fce8e6;
+    border: 1px solid #f5b5b0;
+    border-left: 4px solid #c10000;
+    color: #8b1513;
+  }
+  .msg-box.ok {
+    background: #e6f4ea;
+    border: 1px solid #b6e2c2;
+    border-left: 4px solid #137333;
+    color: #0f5132;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-title-bar">
+  <h1 class="page-title" id="page-title-text">设置</h1>
+  <div class="title-actions">
+    <button class="btn-secondary" onclick="window.location.href='/chart/alert_list_raw'">查看历史告警设置</button>
+    <button class="btn-secondary" onclick="gotoNew()">+ 新增</button>
+    <button class="btn-danger" id="btn-delete" onclick="deleteCurrent()" style="display:none;">删除</button>
+  </div>
+</div>
+
+<div class="settings-container">
+  <!-- 标签页头部 -->
+  <div class="tabs-header">
+    <div class="tab-item active" data-tab="email">邮箱设置</div>
+    <div class="tab-item" data-tab="alert">告警设置</div>
+  </div>
+
+  <!-- ===== 邮箱设置 tab ===== -->
+  <div class="tab-content active" id="tab-email">
+    <div class="form-group">
+      <label for="email-input">当前邮箱</label>
+      <input type="email" id="email-input" placeholder="请输入邮箱" />
+      <div class="hint">告警邮件将发送到此邮箱。</div>
+    </div>
+    <button type="button" class="btn-primary" id="btn-save-email">保 存</button>
+    <div class="msg-box" id="email-msg"></div>
+  </div>
+
+  <!-- ===== 告警设置 tab ===== -->
+  <div class="tab-content" id="tab-alert">
+    <div class="form-group">
+      <label for="stock-code">股票代码 <span style="color:#c10000;">*</span></label>
+      <input type="text" id="stock-code" placeholder="例如：000895 / 600900" />
+    </div>
+    <div class="form-group">
+      <label for="stock-name">股票名称</label>
+      <input type="text" id="stock-name" placeholder="自动查询" readonly />
+      <div class="hint">股票名称根据代码自动查询，不可编辑。</div>
+    </div>
+
+    <!-- 1. 深证指数市盈率告警 -->
+    <div class="alert-block" id="blk-szpe">
+      <label class="alert-head">
+        <input type="checkbox" id="chk-szpe" />
+        深证指数市盈率告警
+      </label>
+      <div class="alert-body">
+        <div class="threshold-row">
+          <div class="th-field">
+            <label for="szpe-buy">深证 PE 买入阈值</label>
+            <input type="number" id="szpe-buy" step="0.01" placeholder="如 20" />
+          </div>
+          <div class="th-field">
+            <label for="szpe-sell">深证 PE 卖出阈值</label>
+            <input type="number" id="szpe-sell" step="0.01" placeholder="如 40" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 股息率告警 -->
+    <div class="alert-block" id="blk-div">
+      <label class="alert-head">
+        <input type="checkbox" id="chk-div" />
+        股息率告警
+      </label>
+      <div class="alert-body">
+        <div class="threshold-row">
+          <div class="th-field">
+            <label for="div-buy">股息率买入阈值 (%)</label>
+            <input type="number" id="div-buy" step="0.01" placeholder="如 5.0" />
+          </div>
+          <div class="th-field">
+            <label for="div-sell">股息率卖出阈值 (%)</label>
+            <input type="number" id="div-sell" step="0.01" placeholder="如 2.0" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 市盈率(TTM)告警 -->
+    <div class="alert-block" id="blk-pettm">
+      <label class="alert-head">
+        <input type="checkbox" id="chk-pettm" />
+        市盈率(TTM)告警
+      </label>
+      <div class="alert-body">
+        <div class="threshold-row">
+          <div class="th-field">
+            <label for="pettm-buy">PE(TTM) 买入阈值</label>
+            <input type="number" id="pettm-buy" step="0.01" placeholder="如 10" />
+          </div>
+          <div class="th-field">
+            <label for="pettm-sell">PE(TTM) 卖出阈值</label>
+            <input type="number" id="pettm-sell" step="0.01" placeholder="如 25" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 告警条件说明 -->
+    <div class="alert-rules">
+      <b>买入条件：</b>深证PE &lt; 买入阈值 且（股息率 &gt; 买入阈值 或 PE(TTM) &lt; 买入阈值），满足任一即触发买入告警<br/>
+      <b>卖出条件：</b>深证PE &gt; 卖出阈值 或 股息率 &lt; 卖出阈值 或 PE(TTM) &gt; 卖出阈值，满足任一即触发卖出告警<br/>
+      若未配置深证PE阈值，则仅按股息率或PE(TTM)条件判断（满足任一即可）。
+    </div>
+
+    <div style="margin-top:18px;">
+      <button type="button" class="btn-primary" id="btn-save-alert">保 存</button>
+    </div>
+    <div class="msg-box" id="alert-msg"></div>
+  </div>
+</div>
+
+<script>
+  /* =========================================================
+   * 标签页切换
+   * ========================================================= */
+  const tabItems = document.querySelectorAll('.tab-item');
+  const tabContents = document.querySelectorAll('.tab-content');
+  tabItems.forEach(t => {
+    t.addEventListener('click', () => {
+      tabItems.forEach(x => x.classList.remove('active'));
+      tabContents.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+    });
+  });
+
+  /* =========================================================
+   * 勾选框联动：勾选 → 显示对应阈值输入区；取消 → 隐藏
+   * ========================================================= */
+  function bindAlertToggle(chkId, blkId) {
+    const chk = document.getElementById(chkId);
+    const blk = document.getElementById(blkId);
+    function sync() {
+      if (chk.checked) blk.classList.add('enabled');
+      else blk.classList.remove('enabled');
+    }
+    chk.addEventListener('change', sync);
+    sync();
+  }
+  bindAlertToggle('chk-szpe',  'blk-szpe');
+  bindAlertToggle('chk-div',   'blk-div');
+  bindAlertToggle('chk-pettm', 'blk-pettm');
+
+  /* =========================================================
+   * 提示信息
+   * ========================================================= */
+  function showMsg(elId, msg, type) {
+    const el = document.getElementById(elId);
+    el.textContent = msg;
+    el.classList.remove('err', 'ok');
+    el.classList.add(type === 'ok' ? 'ok' : 'err', 'show');
+  }
+  function clearMsg(elId) {
+    const el = document.getElementById(elId);
+    el.textContent = '';
+    el.classList.remove('err', 'ok', 'show');
+  }
+
+  /* =========================================================
+   * 数值取值工具：空 → null（避免发送空字符串）
+   * ========================================================= */
+  function numOrEmpty(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+
+  /* =========================================================
+   * 全局状态：当前编辑的告警配置 id（null=新增模式）
+   * ========================================================= */
+  let _editingId = null;
+  function _getQueryParam(name) {
+    const m = new URLSearchParams(window.location.search);
+    return m.get(name);
+  }
+
+  /* =========================================================
+   * 页面加载：拉取配置并回填
+   * 有 id 参数 → 拉取单条详情（编辑模式）
+   * 无 id 参数 → 拉取最新一条（兼容旧版）
+   * ========================================================= */
+  async function loadSettings() {
+    const aid = _getQueryParam('id');
+    _editingId = aid ? parseInt(aid) : null;
+
+    // 更新标题和按钮
+    const titleEl = document.getElementById('page-title-text');
+    const delBtn  = document.getElementById('btn-delete');
+    if (_editingId) {
+      titleEl.textContent = '编辑告警设置';
+      delBtn.style.display = 'inline-block';
+    } else {
+      titleEl.textContent = '新增告警设置';
+      delBtn.style.display = 'none';
+    }
+    // 新增和编辑模式都自动切换到告警设置 tab
+    document.querySelector('.tab-item[data-tab="alert"]').click();
+
+    try {
+      if (_editingId) {
+        // 编辑模式：拉取单条详情并回显
+        const url = '/api/alert_settings/detail/' + _editingId;
+        const resp = await fetch(url, { method: 'GET' });
+        if (resp.status === 401 || resp.status === 403) {
+          window.location.href = '/login';
+          return;
+        }
+        if (resp.status === 404) {
+          showMsg('alert-msg', '告警配置不存在', 'err');
+          return;
+        }
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          if (data && data.code === 'not_logged_in') {
+            window.location.href = '/login';
+            return;
+          }
+          showMsg('alert-msg', data.msg || '加载配置失败', 'err');
+          return;
+        }
+        const cfg = data.data || {};
+
+        // 邮箱
+        if (cfg.email != null) {
+          document.getElementById('email-input').value = cfg.email;
+        }
+
+        // 股票代码
+        if (cfg.stock_code != null) {
+          document.getElementById('stock-code').value = cfg.stock_code;
+        }
+        // 编辑模式下股票代码不可修改
+        document.getElementById('stock-code').readOnly = true;
+
+        // 股票名称（只读）
+        if (cfg.stock_name != null) {
+          document.getElementById('stock-name').value = cfg.stock_name;
+        }
+
+        // 深证 PE
+        const szpeEnabled = !!cfg.szpe_enabled;
+        document.getElementById('chk-szpe').checked = szpeEnabled;
+        if (szpeEnabled) document.getElementById('blk-szpe').classList.add('enabled');
+        if (cfg.szpe_buy != null)  document.getElementById('szpe-buy').value  = cfg.szpe_buy;
+        if (cfg.szpe_sell != null) document.getElementById('szpe-sell').value = cfg.szpe_sell;
+
+        // 股息率
+        const divEnabled = !!cfg.div_enabled;
+        document.getElementById('chk-div').checked = divEnabled;
+        if (divEnabled) document.getElementById('blk-div').classList.add('enabled');
+        if (cfg.div_buy != null)  document.getElementById('div-buy').value  = cfg.div_buy;
+        if (cfg.div_sell != null) document.getElementById('div-sell').value = cfg.div_sell;
+
+        // PE(TTM)
+        const pettmEnabled = !!cfg.pettm_enabled;
+        document.getElementById('chk-pettm').checked = pettmEnabled;
+        if (pettmEnabled) document.getElementById('blk-pettm').classList.add('enabled');
+        if (cfg.pettm_buy != null)  document.getElementById('pettm-buy').value  = cfg.pettm_buy;
+        if (cfg.pettm_sell != null) document.getElementById('pettm-sell').value = cfg.pettm_sell;
+      }
+    } catch (err) {
+      showMsg('alert-msg', '加载配置网络错误：' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
+  function gotoNew() {
+    window.location.href = '/chart/settings_raw';
+  }
+
+  async function deleteCurrent() {
+    if (!_editingId) return;
+    if (!confirm('确定要删除这条告警配置吗？')) return;
+    try {
+      const resp = await fetch('/api/alert_settings/delete/' + _editingId, { method: 'POST' });
+      if (resp.status === 401) { window.location.href = '/login'; return; }
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        alert('删除成功');
+        window.location.href = '/chart/alert_list_raw';
+      } else {
+        showMsg('alert-msg', data.msg || '删除失败', 'err');
+      }
+    } catch (err) {
+      showMsg('alert-msg', '网络错误：' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
+  /* =========================================================
+   * 保存邮箱
+   * ========================================================= */
+  document.getElementById('btn-save-email').addEventListener('click', async () => {
+    clearMsg('email-msg');
+    const email = document.getElementById('email-input').value.trim();
+    if (!email) {
+      showMsg('email-msg', '邮箱不能为空', 'err');
+      return;
+    }
+    const btn = document.getElementById('btn-save-email');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      const resp = await fetch('/api/alert_settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      });
+      if (resp.status === 401 || resp.status === 403) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        showMsg('email-msg', '邮箱保存成功', 'ok');
+      } else {
+        showMsg('email-msg', data.msg || '保存失败', 'err');
+      }
+    } catch (err) {
+      showMsg('email-msg', '网络错误：' + (err && err.message ? err.message : err), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = '保 存';
+    }
+  });
+
+  /* =========================================================
+   * 保存告警设置（新增 or 更新）
+   * ========================================================= */
+  document.getElementById('btn-save-alert').addEventListener('click', async () => {
+    clearMsg('alert-msg');
+    const stockCode = document.getElementById('stock-code').value.trim();
+    if (!stockCode) {
+      showMsg('alert-msg', '股票代码为必填项', 'err');
+      return;
+    }
+    const payload = {
+      id: _editingId,
+      stock_code: stockCode,
+      szpe_enabled: document.getElementById('chk-szpe').checked,
+      szpe_buy:  numOrEmpty(document.getElementById('szpe-buy').value),
+      szpe_sell: numOrEmpty(document.getElementById('szpe-sell').value),
+      div_enabled: document.getElementById('chk-div').checked,
+      div_buy:  numOrEmpty(document.getElementById('div-buy').value),
+      div_sell: numOrEmpty(document.getElementById('div-sell').value),
+      pettm_enabled: document.getElementById('chk-pettm').checked,
+      pettm_buy:  numOrEmpty(document.getElementById('pettm-buy').value),
+      pettm_sell: numOrEmpty(document.getElementById('pettm-sell').value)
+    };
+    const btn = document.getElementById('btn-save-alert');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      const resp = await fetch('/api/alert_settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (resp.status === 401 || resp.status === 403) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        showMsg('alert-msg', '告警设置保存成功', 'ok');
+        // 新增成功后切换到编辑模式
+        if (!_editingId && data.id) {
+          _editingId = data.id;
+          window.history.replaceState(null, '', '/chart/settings_raw?id=' + data.id);
+          document.getElementById('page-title-text').textContent = '编辑告警设置';
+          document.getElementById('btn-delete').style.display = 'inline-block';
+        }
+      } else {
+        showMsg('alert-msg', data.msg || '保存失败', 'err');
+      }
+    } catch (err) {
+      showMsg('alert-msg', '网络错误：' + (err && err.message ? err.message : err), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = '保 存';
+    }
+  });
+
+  // 页面加载即拉取配置
+  window.addEventListener('DOMContentLoaded', loadSettings);
+</script>
+
+</body>
+</html>

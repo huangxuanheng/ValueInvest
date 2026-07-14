@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>告警设置列表 · Value500 投资导航</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f1f1f1;
+    color: #333;
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  .page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    border-left: 6px solid #c10000;
+    padding: 2px 0 2px 12px;
+  }
+  .btn-new {
+    padding: 9px 20px;
+    background: #c10000;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: inherit;
+  }
+  .btn-new:hover { background: #a50000; }
+  .btn-back {
+    padding: 9px 20px;
+    background: #fff;
+    color: #555;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    margin-right: 10px;
+  }
+  .btn-back:hover { background: #f5f5f5; border-color: #bbb; }
+
+  .list-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead {
+    background: #fafafa;
+    border-bottom: 2px solid #eee;
+  }
+  th {
+    padding: 14px 16px;
+    text-align: left;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #eee;
+  }
+  td {
+    padding: 14px 16px;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: middle;
+  }
+  tbody tr:hover { background: #fafafa; }
+
+  .stock-cell {
+    font-weight: 600;
+    color: #222;
+  }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-right: 5px;
+  }
+  .tag-on  { background: #e6f4ea; color: #137333; }
+  .tag-off { background: #f1f1f1; color: #888; }
+  .date-cell { color: #888; font-size: 13px; }
+
+  .actions {
+    white-space: nowrap;
+  }
+  .btn-edit, .btn-del {
+    padding: 5px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+  .btn-edit { background: #e8f0fe; color: #1a73e8; margin-right: 8px; }
+  .btn-edit:hover { background: #d2e3fc; }
+  .btn-del { background: #fce8e6; color: #c10000; }
+  .btn-del:hover { background: #f5b5b0; color: #fff; }
+
+  .empty {
+    padding: 60px 20px;
+    text-align: center;
+    color: #999;
+    font-size: 14.5px;
+  }
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+  }
+
+  .msg-box {
+    max-width: 1100px;
+    margin: 0 auto 14px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+    border-radius: 6px;
+    line-height: 1.6;
+    display: none;
+  }
+  .msg-box.show { display: block; }
+  .msg-box.err { background: #fce8e6; border: 1px solid #f5b5b0; border-left: 4px solid #c10000; color: #8b1513; }
+  .msg-box.ok  { background: #e6f4ea; border: 1px solid #b6e2c2; border-left: 4px solid #137333; color: #0f5132; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1 class="page-title">告警设置列表</h1>
+  <div>
+    <button class="btn-back" onclick="window.location.href='/settings'">返回设置</button>
+    <button class="btn-new" onclick="gotoNew()">+ 新增告警</button>
+  </div>
+</div>
+
+<div class="msg-box" id="list-msg"></div>
+
+<div class="list-container">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:120px;">股票代码</th>
+        <th style="width:140px;">股票名称</th>
+        <th>启用的告警类型</th>
+        <th style="width:120px;">买入阈值</th>
+        <th style="width:120px;">卖出阈值</th>
+        <th style="width:110px;">更新时间</th>
+        <th style="width:140px;">操作</th>
+      </tr>
+    </thead>
+    <tbody id="list-body">
+    </tbody>
+  </table>
+  <div class="empty" id="empty-state" style="display:none;">
+    <div class="empty-icon">📋</div>
+    暂无告警设置，点击右上角"新增告警"开始配置
+  </div>
+</div>
+
+<script>
+  /* =========================================================
+   * 加载列表
+   * ========================================================= */
+  async function loadList() {
+    try {
+      const resp = await fetch('/api/alert_settings/list', { method: 'GET' });
+      if (resp.status === 401 || resp.status === 403) {
+        window.location.href = '/login';
+        return;
+      }
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        showMsg(data.msg || '加载失败', 'err');
+        return;
+      }
+      renderList(data.data || []);
+    } catch (err) {
+      showMsg('网络错误：' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
+  function renderList(items) {
+    const tbody = document.getElementById('list-body');
+    const empty = document.getElementById('empty-state');
+    tbody.innerHTML = '';
+    if (!items || items.length === 0) {
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    items.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.dataset.id = item.id;
+
+      // 启用的类型
+      const tags = [];
+      if (item.szpe_enabled)  tags.push('<span class="tag tag-on">深证PE</span>');
+      if (item.div_enabled)   tags.push('<span class="tag tag-on">股息率</span>');
+      if (item.pettm_enabled) tags.push('<span class="tag tag-on">PE(TTM)</span>');
+      if (tags.length === 0)  tags.push('<span class="tag tag-off">未启用</span>');
+
+      // 买入/卖出阈值摘要
+      const buyVals = [];
+      const sellVals = [];
+      if (item.szpe_enabled)  { buyVals.push('PE'+item.szpe_buy);   sellVals.push('PE'+item.szpe_sell); }
+      if (item.div_enabled)   { buyVals.push('息'+item.div_buy+'%'); sellVals.push('息'+item.div_sell+'%'); }
+      if (item.pettm_enabled) { buyVals.push('TTM'+item.pettm_buy); sellVals.push('TTM'+item.pettm_sell); }
+
+      tr.innerHTML = `
+        <td class="stock-cell">${item.stock_code || '-'}</td>
+        <td>${item.stock_name || '-'}</td>
+        <td>${tags.join('')}</td>
+        <td>${buyVals.join(' / ') || '-'}</td>
+        <td>${sellVals.join(' / ') || '-'}</td>
+        <td class="date-cell">${item.updated_at || '-'}</td>
+        <td class="actions">
+          <button class="btn-edit" onclick="gotoEdit(${item.id})">编辑</button>
+          <button class="btn-del" onclick="deleteItem(${item.id})">删除</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* =========================================================
+   * 操作：跳转编辑/新增、删除
+   * ========================================================= */
+  function gotoNew() {
+    window.location.href = '/chart/settings_raw';
+  }
+  function gotoEdit(id) {
+    window.location.href = '/chart/settings_raw?id=' + id;
+  }
+  async function deleteItem(id) {
+    if (!confirm('确定要删除这条告警配置吗？')) return;
+    try {
+      const resp = await fetch('/api/alert_settings/delete/' + id, { method: 'POST' });
+      if (resp.status === 401) { window.location.href = '/login'; return; }
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        showMsg('删除成功', 'ok');
+        loadList();
+      } else {
+        showMsg(data.msg || '删除失败', 'err');
+      }
+    } catch (err) {
+      showMsg('网络错误：' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
+  /* =========================================================
+   * 提示信息
+   * ========================================================= */
+  function showMsg(msg, type) {
+    const el = document.getElementById('list-msg');
+    el.textContent = msg;
+    el.classList.remove('err', 'ok');
+    el.classList.add(type === 'ok' ? 'ok' : 'err', 'show');
+    setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  // 页面加载即拉取
+  window.addEventListener('DOMContentLoaded', loadList);
+</script>
+
+</body>
+</html>
