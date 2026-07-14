@@ -900,9 +900,8 @@ def _load_or_create_rsa_keys():
         from cryptography.hazmat.primitives.asymmetric import rsa, padding
         from cryptography.hazmat.primitives import serialization, hashes
     except ImportError:
-        print("[RSA] cryptography 库未安装，密码加密功能不可用。pip install cryptography")
+        print("[RSA] cryptography 库未安装，将使用标准库 hashlib 作为备用加密方案")
         return None, None
-    # 尝试加载
     if os.path.exists(_RSA_PRIVATE_KEY_PEM) and os.path.exists(_RSA_PUBLIC_KEY_PEM):
         try:
             with open(_RSA_PRIVATE_KEY_PEM, "rb") as f:
@@ -910,9 +909,9 @@ def _load_or_create_rsa_keys():
             with open(_RSA_PUBLIC_KEY_PEM, "rb") as f:
                 pub = serialization.load_pem_public_key(f.read())
             return priv, pub
-        except Exception:
-            pass
-    # 生成新密钥对
+        except Exception as e:
+            print(f"[RSA] 密钥文件加载失败，将使用标准库 hashlib 作为备用：{e}")
+            return None, None
     priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pub = priv.public_key()
     try:
@@ -928,37 +927,49 @@ def _load_or_create_rsa_keys():
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             ))
     except Exception as e:
-        print(f"[RSA] 密钥文件写入失败：{e}")
+        print(f"[RSA] 密钥文件写入失败，将使用标准库 hashlib 作为备用：{e}")
     return priv, pub
 
 _RSA_PRIV, _RSA_PUB = _load_or_create_rsa_keys()
 
 def rsa_encrypt_password(plain: str) -> str | None:
-    """用 RSA 公钥加密密码，返回 base64 密文。"""
-    if _RSA_PUB is None:
+    """用 RSA 公钥加密密码，返回 base64 密文。RSA不可用时使用标准库 hashlib 备用方案。"""
+    if _RSA_PUB is not None:
+        try:
+            from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives import hashes
+            import base64
+            cipher = _RSA_PUB.encrypt(plain.encode("utf-8"), padding.PKCS1v15())
+            return base64.b64encode(cipher).decode("ascii")
+        except Exception as e:
+            print(f"[RSA] 加密失败，切换到备用方案：{e}")
+    # 备用方案：使用标准库 hashlib + salt
+    import hashlib
+    import os
+    import base64
+    salt = os.urandom(16)
+    key = hashlib.pbkdf2_hmac('sha256', plain.encode('utf-8'), salt, 100000)
+    return base64.b64encode(b'$HL$' + salt + b'$' + key).decode('ascii')
+
+
+def rsa_decrypt_password(cipher_b64: str) -> str | None:
+    """用 RSA 私钥解密密码密文，返回明文。支持备用哈希方案验证。"""
+    # 先检查是否是备用哈希方案
+    if cipher_b64.startswith('$HL$'):
+        return None
+    if _RSA_PRIV is None:
         return None
     try:
         from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.hazmat.primitives import hashes
         import base64
-        cipher = _RSA_PUB.encrypt(plain.encode("utf-8"), padding.PKCS1v15())
-        return base64.b64encode(cipher).decode("ascii")
-    except Exception as e:
-        print(f"[RSA] 加密失败：{e}")
-        return None
-
-def rsa_decrypt_password(cipher_b64: str) -> str | None:
-    """用 RSA 私钥解密密码密文，返回明文。"""
-    if _RSA_PRIV is None:
-        return None
-    try:
-        from cryptography.hazmat.primitives.asymmetric import padding
-        import base64
         cipher = base64.b64decode(cipher_b64)
         plain = _RSA_PRIV.decrypt(cipher, padding.PKCS1v15())
         return plain.decode("utf-8")
-    except Exception:
+    except Exception as e:
+        print(f"[RSA] 解密失败：{e}")
         return None
+
 
 # —— Flask session 配置（app 创建后设置，见下方 app = Flask(...) 处）——
 _FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "value500_secret_key_2026")
@@ -2671,7 +2682,7 @@ def api_register():
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    """用户登录：RSA 解密比对密码，写入 session"""
+    """用户登录：RSA 解密比对密码，写入 session。支持备用哈希方案验证。"""
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -2682,12 +2693,33 @@ def api_login():
         user = s.query(User).filter(User.username == username).first()
         if not user:
             return jsonify({"ok": False, "msg": "用户名不存在"})
+        
+        # 尝试 RSA 解密验证
         plain = rsa_decrypt_password(user.password_enc)
-        if plain is None or plain != password:
-            return jsonify({"ok": False, "msg": "密码错误"})
-        session["user_id"] = user.id
-        session["username"] = user.username
-    return jsonify({"ok": True, "msg": "登录成功", "username": username})
+        if plain is not None and plain == password:
+            session["user_id"] = user.id
+            session["username"] = user.username
+            return jsonify({"ok": True, "msg": "登录成功", "username": username})
+        
+        # 备用方案：验证哈希密码
+        if user.password_enc.startswith('$HL$'):
+            import hashlib
+            import base64
+            try:
+                decoded = base64.b64decode(user.password_enc)
+                parts = decoded.split(b'$')
+                if len(parts) == 4 and parts[1] == b'HL':
+                    salt = parts[2]
+                    stored_key = parts[3]
+                    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+                    if key == stored_key:
+                        session["user_id"] = user.id
+                        session["username"] = user.username
+                        return jsonify({"ok": True, "msg": "登录成功", "username": username})
+            except Exception as e:
+                print(f"[HASH] 验证失败：{e}")
+        
+        return jsonify({"ok": False, "msg": "密码错误"})
 
 
 @app.route("/api/logout", methods=["POST"])
