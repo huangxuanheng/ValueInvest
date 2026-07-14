@@ -682,6 +682,13 @@ function buildLayout(title, fromDate, toDate) {
       rangeselector: { buttons: btns, bgcolor: '#fafafa', borderwidth: 1, bordercolor: '#ddd' },
       showspikes: false, showline: true, ticks: 'outside',
       ticklabelposition: 'outside', showticklabels: true,
+      tickformatstops: [
+        { dtickrange: [null, 86400000], value: '%Y-%m-%d' },
+        { dtickrange: [86400000, 604800000], value: '%m-%d' },
+        { dtickrange: [604800000, 2628000000], value: '%Y-%m' },
+        { dtickrange: [2628000000, null], value: '%Y' },
+      ],
+      tickangle: -45,
     },
     hovermode: 'x unified', spikedistance: -1,
     legend: {
