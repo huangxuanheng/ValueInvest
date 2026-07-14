@@ -169,7 +169,7 @@ def _ensure_mysql_database_exists():
 
 _ensure_mysql_database_exists()
 
-# -------- 防御式 MySQL 连接验证：连不上则自动回退到本地 SQLite，保证页面可用 --------
+# -------- MySQL 连接验证：连不上则报错退出，确保使用统一数据库 --------
 _MYSQL_FALLBACK_MSG = None
 try:
     with create_engine(DB_URL, echo=False, future=True,
@@ -179,16 +179,15 @@ try:
         _probe.execute(text("SELECT 1"))
 except Exception as _conn_err:
     _MYSQL_FALLBACK_MSG = (
-        f"[WARN] MySQL 连接失败，自动回退到本地 SQLite："
+        f"[FATAL] MySQL 连接失败："
         f"{type(_conn_err).__name__}: {_conn_err}"
     )
     print("\n" + "!" * 72)
     print(_MYSQL_FALLBACK_MSG)
     print("  原因常见：MySQL 账号/密码不对、服务器 3306 端口未开放、IP 白名单未加当前出口 IP。")
-    print(f"  当前回退：使用本地 SQLite（路径 {SQLITE_DB_PATH}），所有页面/接口可用。")
-    print("  修好 MySQL 后重启进程即可自动切回；若确定密码/空格有问题请修改 web_app.py 顶部 _MYSQL_PASS 变量。")
+    print("  请检查 MySQL 连接配置后重启进程！")
     print("!" * 72 + "\n")
-    DB_URL = SQLITE_DB_URL
+    raise RuntimeError(f"MySQL 连接失败：{_conn_err}")
 
 engine = create_engine(DB_URL, echo=False, future=True,
                        connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
@@ -270,28 +269,9 @@ class PreciousMetal(Base):
 
 def init_db():
     """初始化：建库（若MySQL）+ 建表 + SQLite 下自动补齐缺失列 + 可选 SQLite→MySQL 数据迁移。
-    注意：如果 MySQL 连接失败，不再自动回退到 SQLite，而是直接报错退出，
+    注意：如果 MySQL 连接失败或建表失败，不再自动回退到 SQLite，而是直接报错退出，
     确保服务器和本地使用同一数据库，避免数据不一致。"""
     global engine, SessionLocal
-    _done_fallback = False
-    def _fallback_to_sqlite(reason: str):
-        global engine, SessionLocal, DB_URL
-        nonlocal _done_fallback
-        if _done_fallback:
-            return
-        _done_fallback = True
-        print("\n" + "!" * 72)
-        print(f"[FATAL] MySQL 连接失败：{reason}")
-        print("  请检查：")
-        print("    1. MySQL 服务器 IP/端口是否正确")
-        print("    2. MySQL 用户密码是否正确")
-        print("    3. MySQL 用户是否有权限访问数据库")
-        print(f"    4. MySQL 服务器是否允许 '{_MYSQL_USER}'@'%' 远程连接")
-        print("  授权命令示例：")
-        print("    GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP")
-        print(f"      ON `{_MYSQL_DB}`.* TO '{_MYSQL_USER}'@'%';  FLUSH PRIVILEGES;")
-        print("!" * 72 + "\n")
-        raise RuntimeError(f"MySQL 连接失败：{reason}")
 
     # SQLite 不需要 CREATE DATABASE
     if DB_URL.startswith("mysql+pymysql://"):
@@ -304,10 +284,12 @@ def init_db():
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as _e:
-        # MySQL 下建表失败几乎都是权限不足（1142 CREATE command denied）— 回退到 SQLite
         if DB_URL.startswith("mysql+pymysql://"):
-            _fallback_to_sqlite(f"MySQL 建表失败：{type(_e).__name__}: {str(_e)[:160]}")
-            Base.metadata.create_all(bind=engine)
+            print(f"\n[FATAL] MySQL 建表失败：{type(_e).__name__}: {str(_e)[:160]}")
+            print("  请检查 MySQL 用户权限（需要 CREATE, ALTER 权限）")
+            print("  授权命令：GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX,DROP")
+            print(f"    ON `{_MYSQL_DB}`.* TO '{_MYSQL_USER}'@'%'; FLUSH PRIVILEGES;")
+            raise
         else:
             raise
     if DB_URL.startswith("sqlite"):
