@@ -738,6 +738,7 @@ class StockDividend(Base):
     plan_publish_date    = Column(Date, nullable=True, comment="董事会预案公告日（原始披露，可能未通过；仅用于辅助 debug）")
     impl_publish_date    = Column(Date, nullable=True, comment="实施公告日（东财 data.eastmoney.com 公告详情页公开）")
     report_year          = Column(String(10), nullable=True, comment="分红对应的报告期/年度，如 2023、2023H1、2023Q3")
+    report_date          = Column(Date, nullable=True, comment="分红对应的报告期期末日，如 2023-12-31、2023-06-30")
     raw_note             = Column(String(128), nullable=True, comment="原始备注（如有）")
     created_at           = Column(Date, nullable=True, comment="入库日期（本表拉取/更新的日期）")
 
@@ -762,6 +763,7 @@ class StockDividend(Base):
             "plan_publish_date":  _d(self.plan_publish_date),
             "impl_publish_date":  _d(self.impl_publish_date),
             "report_year":        self.report_year,
+            "report_date":        _d(self.report_date),
             "raw_note":           self.raw_note,
         }
 
@@ -1380,7 +1382,7 @@ def get_and_update_stock_dividend(code: str):
             today_d = dt.date.today()
             # 兼容列：_ri_fetch_dividends 的返回列名（ex_date 为 date；其他列含 per_share_*；可能还有 plan/impl/reg_publish_date）
             def _to_date(x):
-                if x is None or (isinstance(x, float) and pd.isna(x)):
+                if x is None or pd.isna(x):
                     return None
                 if isinstance(x, dt.date):
                     return x
@@ -1406,6 +1408,7 @@ def get_and_update_stock_dividend(code: str):
                     plan_publish_date=plan_pub,
                     impl_publish_date=impl_pub,
                     report_year=str(r["report_year"]) if "report_year" in r and pd.notna(r.get("report_year")) else None,
+                    report_date=_to_date(r.get("report_date")),
                     raw_note=None,
                     created_at=today_d,
                 ))
@@ -1419,9 +1422,10 @@ def get_and_update_stock_dividend(code: str):
     dicts = [r.to_dict() for r in rows]
     if not dicts:
         return pd.DataFrame(columns=["ex_date","per_share_dividend","per_share_gift","per_share_transfer",
-                                     "record_date","pay_date","reg_publish_date","plan_publish_date","impl_publish_date"])
+                                     "record_date","pay_date","reg_publish_date","plan_publish_date","impl_publish_date",
+                                     "report_year","report_date"])
     df = pd.DataFrame(dicts)
-    for dc in ["ex_date","record_date","pay_date","reg_publish_date","plan_publish_date","impl_publish_date"]:
+    for dc in ["ex_date","record_date","pay_date","reg_publish_date","plan_publish_date","impl_publish_date","report_date"]:
         if dc in df.columns:
             df[dc] = pd.to_datetime(df[dc]).dt.date
     return df.reset_index(drop=True)
@@ -3913,7 +3917,7 @@ def _ri_fetch_dividends_native(symbol: str):
             print(f"  [reinvest] 原生分红接口 fallback 第{page}页失败: {type(e).__name__}: {e}")
             break
 
-    ex_dates, gifts, transfers, divs = [], [], [], []
+    ex_dates, gifts, transfers, divs, report_years = [], [], [], [], []
     for it in all_rows:
         if (it.get("ASSIGN_PROGRESS") or "") != "实施分配":
             continue
@@ -3924,6 +3928,14 @@ def _ri_fetch_dividends_native(symbol: str):
         gifts.append(_ri_safe_float(it.get("BONUS_RATIO")) / 10.0)
         transfers.append(_ri_safe_float(it.get("IT_RATIO")) / 10.0)
         divs.append(_ri_safe_float(it.get("PRETAX_BONUS_RMB")) / 10.0)
+        report_date = it.get("REPORT_DATE")
+        if report_date:
+            try:
+                report_years.append(str(pd.Timestamp(report_date).year))
+            except Exception:
+                report_years.append(None)
+        else:
+            report_years.append(None)
     if not ex_dates and last_err:
         raise last_err
     df = pd.DataFrame({
@@ -3931,6 +3943,7 @@ def _ri_fetch_dividends_native(symbol: str):
         "per_share_gift": gifts,
         "per_share_transfer": transfers,
         "per_share_dividend": divs,
+        "report_year": report_years,
     })
     if len(df) == 0:
         return df
@@ -3940,23 +3953,43 @@ def _ri_fetch_dividends_native(symbol: str):
 def _ri_fetch_dividends(symbol: str):
     """
     抓取分红送股（仅处理方案进度=实施分配）。
-    主源：akshare stock_fhps_detail_em；失败 fallback：东财 datacenter-web 原生接口。
+    主源：巨潮资讯网 stock_dividend_cninfo（含特别分红、中期分红等，数据最全）；
+    失败 fallback：akshare stock_fhps_detail_em；再失败 fallback：东财 datacenter-web 原生接口。
     带 3 次重试 + Chrome 浏览器 headers。
-    返回 DataFrame，列：ex_date / per_share_gift / per_share_transfer / per_share_dividend
+    返回 DataFrame，列：ex_date / per_share_gift / per_share_transfer / per_share_dividend / report_year / report_date
     """
     import akshare as ak
     s = _ri_normalize_symbol(symbol)
     last_err = None
+    
+    try:
+        df = ak.stock_dividend_cninfo(symbol=s)
+        if df is not None and len(df) > 0:
+            df = df.copy()
+            df["ex_date"] = pd.to_datetime(df.get("除权日"), errors="coerce")
+            df = df.dropna(subset=["ex_date"]).copy()
+            
+            df["per_share_dividend"] = df["派息比例"].apply(lambda x: _ri_safe_float(x)/10.0)
+            df["per_share_gift"] = df["送股比例"].apply(lambda x: _ri_safe_float(x)/10.0)
+            df["per_share_transfer"] = df["转增比例"].apply(lambda x: _ri_safe_float(x)/10.0)
+            
+            df["report_date"] = df["报告时间"].apply(lambda x: _parse_report_date(x))
+            df["report_year"] = df["report_date"].apply(lambda x: str(x.year) if x is not None else None)
+            
+            df = df.sort_values("ex_date").reset_index(drop=True)
+            return df[["ex_date","per_share_gift","per_share_transfer","per_share_dividend","report_year","report_date"]]
+    except Exception as e:
+        last_err = e
+        print(f"  [reinvest] stock_dividend_cninfo({s}) 失败: {type(e).__name__}: {e}")
+
     with _ri_ak_headers_patch():
         for attempt in range(3):
             try:
                 time.sleep(0.6 + attempt * 0.6)
-                # akshare 1.18.60 不接受 timeout 参数
                 df = ak.stock_fhps_detail_em(symbol=s)
                 if df is None or len(df) == 0:
                     return pd.DataFrame(columns=[
-                        "ex_date","per_share_gift","per_share_transfer","per_share_dividend"])
-                # akshare 中文列名
+                        "ex_date","per_share_gift","per_share_transfer","per_share_dividend","report_year","report_date"])
                 if "方案进度" in df.columns:
                     df = df[df["方案进度"].astype(str).str.contains("实施", na=False)].copy()
                 df["ex_date"] = pd.to_datetime(df.get("除权除息日") if "除权除息日" in df.columns else df.get("EX_DIVIDEND_DATE"), errors="coerce")
@@ -3966,12 +3999,14 @@ def _ri_fetch_dividends(symbol: str):
                 df["per_share_gift"]     = df[gift_col].apply(lambda x: _ri_safe_float(x)/10.0)
                 df["per_share_transfer"] = df[trans_col].apply(lambda x: _ri_safe_float(x)/10.0)
                 df["per_share_dividend"] = df[div_col].apply(lambda x: _ri_safe_float(x)/10.0)
+                report_col = "报告期" if "报告期" in df.columns else "REPORT_DATE"
+                df["report_date"] = df[report_col].apply(lambda x: pd.Timestamp(x).normalize() if pd.notna(x) else None)
+                df["report_year"] = df["report_date"].apply(lambda x: str(x.year) if x is not None else None)
                 df = df.dropna(subset=["ex_date"]).sort_values("ex_date").reset_index(drop=True)
-                return df[["ex_date","per_share_gift","per_share_transfer","per_share_dividend"]]
+                return df[["ex_date","per_share_gift","per_share_transfer","per_share_dividend","report_year","report_date"]]
             except Exception as e:
                 last_err = e
                 print(f"  [reinvest] stock_fhps_detail_em({s}) 第{attempt+1}次失败: {type(e).__name__}: {e}")
-    # fallback 原生接口
     print(f"  [reinvest] {s} akshare 分红接口失败，fallback 东财原生分红接口...")
     try:
         return _ri_fetch_dividends_native(symbol)
@@ -3980,6 +4015,30 @@ def _ri_fetch_dividends(symbol: str):
             f"akshare 分红送股获取失败（3 次重试），且原生接口 fallback 也失败："
             f"akshare={type(last_err).__name__}:{last_err}; 原生={type(e2).__name__}:{e2}"
         )
+
+
+def _parse_report_date(report_time_str):
+    """
+    解析巨潮资讯网的报告时间字符串，返回报告期期末日。
+    示例："2025年报" → 2025-12-31, "2025半年报" → 2025-06-30, "2025三季报" → 2025-09-30
+    """
+    if report_time_str is None or pd.isna(report_time_str):
+        return None
+    s = str(report_time_str).strip()
+    import re
+    match = re.match(r'(\d{4})(年报|半年报|三季报|一季报)', s)
+    if match:
+        year = int(match.group(1))
+        report_type = match.group(2)
+        if report_type == '年报':
+            return pd.Timestamp(year=year, month=12, day=31)
+        elif report_type == '半年报':
+            return pd.Timestamp(year=year, month=6, day=30)
+        elif report_type == '三季报':
+            return pd.Timestamp(year=year, month=9, day=30)
+        elif report_type == '一季报':
+            return pd.Timestamp(year=year, month=3, day=31)
+    return None
 
 def _ri_fetch_sec_name(symbol: str):
     """
@@ -4354,67 +4413,102 @@ def _derive_report_period_end(ex_d, min_days_lag: int = 40) -> pd.Timestamp:
     return valid[0]
 
 
-def _infer_slot_and_rpe(ex_d):
+def _infer_slot_and_rpe(ex_d, report_year=None, report_date=None):
     """
-    V11 修正：完全抛弃月份硬映射（延迟除息的情况完全失效，如双汇 2020 中期分红 ex=2020-11-25 被误判为 Q3，
-    2005 年度分红 ex=2006-03-28 被误判为 Q1 → 3.72 错值根因）。
+    V13 修正：优先使用报告期信息（report_year, report_date）推断分红类型，
+    仅当报告期信息缺失时才回退到基于除息日的滞后区间推断。
 
-    改为：生成 4 种报告期 slot 的候选 rpe（报告期期末日）→ 计算 ex_d 与 rpe 的 lag 天数 →
-    仅保留 lag 在 A 股合理披露+除息滞后区间内的候选 → 若有多个有效候选：
-      ① 优先级（tie-break）：Y(年度) ≈ H(中期) > Q3 > Q1 （H/Q3 同时有效时优先 H，因为 A 股单独发 Q3 极少）
-      ② 同优先级内选 lag 最小（最紧凑的那次报告）
-    极端异常才 fallback 回旧月份经验映射。
-
-    合理滞后区间（lag = ex_d - rpe，单位天）：
-      Y（年度，rpe=上一年 12/31）：70~330 天  （除息通常 3 月下旬 ~ 次年 11 月；多数 4-7 月）
-      H（中期，rpe=本年 6/30） ：30~270 天  （除息通常 8 月 ~ 次年 3 月；双汇有过拖到 11 月除息，lag=148 天）
-      Q3（三季度，rpe=本年 9/30）：10~210 天  （除息通常 10 月下旬 ~ 次年 4 月）
-      Q1（一季度，rpe=本年 3/31）：30~150 天  （除息必须 ≥ 4/30 之后，即 lag≥30；5 月中旬后才可能除息）
+    参数：
+      ex_d: 除息日期
+      report_year: 报告年度（字符串或整数，如 "2025" 或 2025）
+      report_date: 报告期期末日（如 "2025-06-30" 或 pd.Timestamp）
 
     返回 (slot, rpe)
     """
     ex_norm = pd.Timestamp(ex_d).normalize()
     y, m, d = ex_norm.year, ex_norm.month, ex_norm.day
 
+    if report_date is not None:
+        try:
+            rpe_ts = pd.Timestamp(report_date).normalize()
+            mm, dd = rpe_ts.month, rpe_ts.day
+            if mm == 12 and dd == 31:
+                return "Y", rpe_ts
+            elif mm == 6 and dd == 30:
+                return "H", rpe_ts
+            elif mm == 9 and dd == 30:
+                return "Q3", rpe_ts
+            elif mm == 3 and dd == 31:
+                return "Q1", rpe_ts
+        except Exception:
+            pass
+
+    if report_year is not None:
+        try:
+            ry = int(report_year)
+            candidates = []
+
+            def _valid_cand(slot_name, rpe_ts, lag_min, lag_max, prio):
+                if rpe_ts is None:
+                    return None
+                if rpe_ts >= ex_norm:
+                    return None
+                lag = (ex_norm - rpe_ts).days
+                if not (lag_min <= lag <= lag_max):
+                    return None
+                return (prio, lag, slot_name, rpe_ts)
+
+            candidates.append(_valid_cand("Y", pd.Timestamp(year=ry, month=12, day=31),
+                                          70, 330, prio=1))
+            candidates.append(_valid_cand("H", pd.Timestamp(year=ry, month=6, day=30),
+                                          30, 270, prio=1))
+            candidates.append(_valid_cand("Q3", pd.Timestamp(year=ry, month=9, day=30),
+                                          10, 210, prio=2))
+            candidates.append(_valid_cand("Q1", pd.Timestamp(year=ry, month=3, day=31),
+                                          30, 150, prio=3))
+
+            cands = [c for c in candidates if c is not None]
+            if len(cands) > 0:
+                cands.sort(key=lambda t: (t[0], t[1]))
+                _, _, slot_sel, rpe_sel = cands[0]
+                return slot_sel, rpe_sel
+        except Exception:
+            pass
+
     def _valid_cand(slot_name, rpe_ts, lag_min, lag_max, prio):
         if rpe_ts is None:
             return None
         if rpe_ts >= ex_norm:
-            return None  # ex 必须在 rpe 之后
+            return None
         lag = (ex_norm - rpe_ts).days
         if not (lag_min <= lag <= lag_max):
             return None
         return (prio, lag, slot_name, rpe_ts)
 
     candidates = []
-    # --- slot=Y（年度）两个候选：上一年度、再前一年度（极端滞后） ---
     candidates.append(_valid_cand("Y", pd.Timestamp(year=y-1, month=12, day=31),
                                   70, 330, prio=1))
     candidates.append(_valid_cand("Y", pd.Timestamp(year=y-2, month=12, day=31),
-                                  365+70, 365+360, prio=1))  # 再前一年（>730 天就不要了）
-    # --- slot=H（中期）两个候选：本年、去年 ---
+                                  365+70, 365+360, prio=1))
     candidates.append(_valid_cand("H", pd.Timestamp(year=y, month=6, day=30),
-                                  30, 270, prio=1))  # H 与 Y 同级优先级
+                                  30, 270, prio=1))
     candidates.append(_valid_cand("H", pd.Timestamp(year=y-1, month=6, day=30),
                                   365+30, 365+270, prio=1))
-    # --- slot=Q3 两个候选：本年、去年 ---
     candidates.append(_valid_cand("Q3", pd.Timestamp(year=y, month=9, day=30),
-                                  10, 210, prio=2))  # Q3 单独出现少，优先级低于 H
+                                  10, 210, prio=2))
     candidates.append(_valid_cand("Q3", pd.Timestamp(year=y-1, month=9, day=30),
                                   365+10, 365+210, prio=2))
-    # --- slot=Q1 两个候选：本年、去年 ---
     candidates.append(_valid_cand("Q1", pd.Timestamp(year=y, month=3, day=31),
-                                  30, 150, prio=3))  # Q1 最少见，最低优先级
+                                  30, 150, prio=3))
     candidates.append(_valid_cand("Q1", pd.Timestamp(year=y-1, month=3, day=31),
                                   365+30, 365+150, prio=3))
 
     cands = [c for c in candidates if c is not None]
     if len(cands) > 0:
-        cands.sort(key=lambda t: (t[0], t[1]))  # prio 小优先 → lag 小优先
+        cands.sort(key=lambda t: (t[0], t[1]))
         _, _, slot_sel, rpe_sel = cands[0]
         return slot_sel, rpe_sel
 
-    # ====== 极端异常 fallback：旧月份经验映射（基本不会走到） ======
     if m in (5, 6, 7):
         slot = "Y"; rpe = pd.Timestamp(year=y-1, month=12, day=31)
     elif m in (8, 9, 10):
@@ -4424,7 +4518,7 @@ def _infer_slot_and_rpe(ex_d):
     elif m in (1, 2):
         slot = "Q3"; rpe = pd.Timestamp(year=y-1, month=9, day=30)
     elif m in (3, 4):
-        slot = "Y"; rpe = pd.Timestamp(year=y-1, month=12, day=31)  # 3/4 月除息一律按年报计，不再判 Q1（Q1 不可能这么早除息）
+        slot = "Y"; rpe = pd.Timestamp(year=y-1, month=12, day=31)
     else:
         slot = "Y"; rpe = pd.Timestamp(year=y-1, month=12, day=31)
     return slot, rpe
@@ -4526,7 +4620,9 @@ def _uv_calc_daily_div_yield(div_df, stock_hist_series: pd.Series):
                         per_sh = candidate
                     else:
                         continue
-                slot, rpe = _infer_slot_and_rpe(exd_norm)
+                report_year_val = r.get("report_year")
+                report_date_val = r.get("report_date")
+                slot, rpe = _infer_slot_and_rpe(exd_norm, report_year=report_year_val, report_date=report_date_val)
                 # V6 双重前视约束
                 hard_earliest       = _earliest_release_date(rpe) + pd.Timedelta(days=15)
                 practical_earliest  = exd_norm - pd.Timedelta(days=15)
