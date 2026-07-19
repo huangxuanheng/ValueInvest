@@ -2,273 +2,723 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="format-detection" content="telephone=no, email=no" />
+<meta name="theme-color" content="#c10000" />
 <title>个股同行分析</title>
 <style>
+  :root {
+    --primary-color: #c10000;
+    --primary-light: #e50012;
+    --bg-color: #f5f6f7;
+    --card-bg: #fff;
+    --text-primary: #333;
+    --text-secondary: #666;
+    --text-hint: #999;
+    --border-color: #f0f0f0;
+    --success-color: #00a65a;
+    --danger-color: #e50012;
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+    --safe-left: env(safe-area-inset-left);
+    --safe-right: env(safe-area-inset-right);
+  }
+  
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  html { 
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", sans-serif;
-    background: #f7f8fa;
-    color: #333;
-    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
   }
+  
   .container {
-    max-width: 1200px;
-    margin: 0 auto;
-    background: #fff;
-    border-radius: 8px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    padding: 30px;
+    min-height: 100vh;
+    background: var(--bg-color);
+    padding-bottom: calc(var(--safe-bottom) + 60px);
   }
+  
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+    color: #fff;
+    padding: calc(var(--safe-top) + 12px) 16px 12px;
+    box-shadow: 0 2px 12px rgba(193, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(var(--safe-top) + 52px);
+  }
+  
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+  
   .input-section {
-    margin-bottom: 30px;
-    padding-bottom: 30px;
-    border-bottom: 2px solid #c10000;
+    padding: 16px;
+    background: var(--card-bg);
+    margin-bottom: 8px;
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   }
-  .input-section h1 {
-    font-size: 22px;
-    color: #333;
-    margin-bottom: 20px;
-    text-align: center;
-  }
+  
   .input-group {
     display: flex;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 6px;
+    transition: all 0.2s;
+    border: 1px solid transparent;
   }
+  
+  .input-group:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(193, 0, 0, 0.1);
+  }
+  
   .input-group .label {
-    width: 60px;
+    width: 44px;
+    height: 40px;
     font-size: 14px;
-    color: #666;
-    text-align: right;
-    padding-right: 12px;
+    color: var(--primary-color);
+    font-weight: 600;
+    text-align: center;
     flex-shrink: 0;
+    background: var(--card-bg);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
   }
+  
   .input-group input {
     flex: 1;
-    height: 38px;
+    height: 40px;
     padding: 0 12px;
-    border: 1px solid #e5e5e5;
-    border-radius: 4px;
-    font-size: 14px;
-    transition: border-color 0.2s;
-  }
-  .input-group input:focus {
+    border: none;
+    background: transparent;
+    font-size: 16px;
     outline: none;
-    border-color: #c10000;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    color: var(--text-primary);
+    letter-spacing: 2px;
   }
+  
+  .input-group input::placeholder {
+    color: var(--text-hint);
+    letter-spacing: normal;
+  }
+  
   .input-group .remove-btn {
     width: 38px;
     height: 38px;
-    margin-left: 8px;
+    margin-left: 6px;
     border: none;
-    background: #f5f5f5;
-    color: #999;
-    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text-hint);
+    border-radius: 50%;
     cursor: pointer;
-    font-size: 16px;
-    transition: background 0.2s;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    flex-shrink: 0;
   }
-  .input-group .remove-btn:hover {
+  
+  .input-group .remove-btn:active {
     background: #ffecec;
-    color: #c10000;
+    color: var(--primary-color);
+    transform: scale(0.9);
   }
+  
   .add-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
-    height: 38px;
+    height: 46px;
     margin-top: 12px;
-    border: 1px dashed #d5d5d5;
-    background: #fff;
-    color: #666;
-    border-radius: 4px;
+    border: 2px dashed #ddd;
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    border-radius: 10px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 15px;
     transition: all 0.2s;
   }
-  .add-btn:hover {
-    border-color: #c10000;
-    color: #c10000;
+  
+  .add-btn:active {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(193, 0, 0, 0.02);
   }
+  
+  .add-btn .icon {
+    margin-right: 6px;
+    font-size: 20px;
+  }
+  
   .year-select-group {
-    margin-top: 20px;
-    margin-bottom: 20px;
-    padding-top: 20px;
-    border-top: 1px dashed #e5e5e5;
+    margin-top: 16px;
+    margin-bottom: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
   }
+  
   .year-select-group .label {
     display: block;
     font-size: 14px;
-    color: #666;
-    margin-bottom: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    font-weight: 500;
   }
+  
   .year-options {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
   }
+  
   .year-option {
-    padding: 8px 20px;
-    border: 1px solid #e5e5e5;
-    border-radius: 4px;
-    background: #fff;
-    color: #666;
+    padding: 10px 20px;
+    border: 1.5px solid #e5e5e5;
+    border-radius: 25px;
+    background: var(--card-bg);
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 14px;
+    font-weight: 500;
     transition: all 0.2s;
+    min-width: 72px;
+    text-align: center;
+    user-select: none;
   }
-  .year-option:hover {
-    border-color: #c10000;
-    color: #c10000;
+  
+  .year-option:active {
+    transform: scale(0.95);
   }
+  
   .year-option.active {
-    background: #c10000;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
     color: #fff;
-    border-color: #c10000;
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(193, 0, 0, 0.3);
   }
+  
   .submit-btn {
     display: block;
     width: 100%;
-    height: 44px;
-    margin-top: 10px;
-    background: #c10000;
+    height: 50px;
+    margin-top: 8px;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
     color: #fff;
     border: none;
-    border-radius: 4px;
+    border-radius: 12px;
     cursor: pointer;
-    font-size: 16px;
-    font-weight: 700;
-    transition: background 0.2s;
+    font-size: 17px;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 4px 16px rgba(193, 0, 0, 0.4);
+    letter-spacing: 1px;
   }
-  .submit-btn:hover {
-    background: #a50000;
+  
+  .submit-btn:active {
+    transform: scale(0.98);
+    box-shadow: 0 2px 8px rgba(193, 0, 0, 0.4);
   }
+  
   .submit-btn:disabled {
     background: #ccc;
     cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
   }
+  
   .tips {
-    margin-top: 16px;
-    padding: 12px 16px;
+    margin-top: 14px;
+    padding: 14px;
     background: #fff8e1;
-    border-radius: 4px;
+    border-radius: 10px;
     font-size: 12px;
     color: #8a5a00;
+    line-height: 1.8;
+    border: 1px solid #ffeeba;
+  }
+  
+  .tips strong {
+    font-size: 13px;
+  }
+  
+  .tips ul {
+    margin-top: 6px;
+    padding-left: 18px;
+  }
+  
+  .tips li {
+    margin-bottom: 5px;
+    list-style-type: disc;
+  }
+  
+  .error-msg {
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: #ffecec;
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--primary-color);
+    display: none;
+    border: 1px solid #fecaca;
     line-height: 1.6;
   }
-  .error-msg {
-    margin-top: 12px;
-    padding: 12px;
-    background: #ffecec;
-    border-radius: 4px;
-    font-size: 13px;
-    color: #c10000;
-    display: none;
-  }
+  
   .result-section {
     display: none;
   }
+  
   .result-section.show {
     display: block;
   }
+  
   .loading {
     text-align: center;
-    padding: 40px 0;
-    color: #999;
+    padding: 80px 20px;
+    color: var(--text-hint);
   }
+  
   .loading .spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #c10000;
+    width: 50px;
+    height: 50px;
+    border: 4px solid #f0f0f0;
+    border-top: 4px solid var(--primary-color);
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin: 0 auto 16px;
+    margin: 0 auto 20px;
   }
+  
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
-  .result-content h2 {
-    font-size: 20px;
-    color: #333;
-    margin-bottom: 20px;
-    text-align: center;
+  
+  .loading p {
+    font-size: 15px;
+    color: var(--text-secondary);
   }
+  
+  .result-content {
+    padding: 16px;
+    padding-bottom: calc(var(--safe-bottom) + 80px);
+  }
+  
+  .result-content h2 {
+    font-size: 17px;
+    color: var(--text-primary);
+    margin-bottom: 18px;
+    text-align: center;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--primary-color);
+    font-weight: 600;
+  }
+  
   .result-content h3 {
     font-size: 16px;
-    color: #c10000;
+    color: var(--primary-color);
     margin-top: 24px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    padding-left: 12px;
+    border-left: 4px solid var(--primary-color);
   }
+  
   .result-content h4 {
     font-size: 15px;
-    color: #333;
-    margin-top: 16px;
-    margin-bottom: 8px;
+    color: var(--text-primary);
+    margin-top: 20px;
+    margin-bottom: 10px;
+    font-weight: 600;
+    line-height: 1.5;
   }
+  
   .result-content p {
-    line-height: 1.8;
+    line-height: 1.9;
     margin-bottom: 12px;
     font-size: 14px;
-    color: #333;
+    color: var(--text-primary);
+    text-align: justify;
+    text-indent: 2em;
   }
+  
   .result-content a {
-    color: #c10000;
+    color: var(--primary-color);
     text-decoration: none;
   }
-  .result-content a:hover {
-    text-decoration: underline;
+  
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
   }
+  
+  .table-wrapper::-webkit-scrollbar {
+    height: 6px;
+  }
+  
+  .table-wrapper::-webkit-scrollbar-track {
+    background: #f5f5f5;
+    border-radius: 3px;
+  }
+  
+  .table-wrapper::-webkit-scrollbar-thumb {
+    background: #ddd;
+    border-radius: 3px;
+  }
+  
   table {
     width: 100%;
+    min-width: 520px;
     border-collapse: collapse;
-    font-size: 13px;
-    margin-bottom: 16px;
+    font-size: 12px;
   }
+  
   table th, table td {
-    border: 1px solid #e5e5e5;
-    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    padding: 9px 10px;
     text-align: right;
+    white-space: nowrap;
+    font-weight: normal;
   }
+  
   table th:first-child, table td:first-child {
     text-align: left;
     background: #fafafa;
     font-weight: 600;
-    width: 120px;
+    min-width: 100px;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    padding-left: 12px;
   }
+  
+  table th:first-child {
+    background: #f0f0f0;
+    color: var(--text-secondary);
+  }
+  
   table th {
-    background: #f5f5f5;
+    background: #f0f0f0;
     font-weight: 600;
-    color: #666;
+    color: var(--text-secondary);
+    font-size: 11px;
     white-space: nowrap;
   }
+  
   table tr:nth-child(even) td {
     background: #fafafa;
   }
-  .value-num {
-    font-family: "Consolas", "Monaco", monospace;
+  
+  table tr:hover td {
+    background: #f5f5f5;
   }
+  
+  .value-num {
+    font-family: "SF Mono", "Menlo", "Consolas", "Monaco", monospace;
+    font-weight: 500;
+    font-size: 12px;
+  }
+  
   .value-pct {
-    font-family: "Consolas", "Monaco", monospace;
-    color: #e50012;
+    font-family: "SF Mono", "Menlo", "Consolas", "Monaco", monospace;
+    font-weight: 500;
+    font-size: 12px;
+  }
+  
+  .positive {
+    color: var(--danger-color);
+  }
+  
+  .negative {
+    color: var(--success-color);
+  }
+  
+  .stock-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid var(--border-color);
+  }
+  
+  .stock-card .stock-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+  }
+  
+  .stock-card .stock-name::before {
+    content: '';
+    width: 4px;
+    height: 14px;
+    background: var(--primary-color);
+    border-radius: 2px;
+    margin-right: 8px;
+  }
+  
+  .scroll-hint {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-hint);
+    margin-bottom: 10px;
+    padding: 6px 0;
+    background: #f8f9fa;
+    border-radius: 4px;
+  }
+  
+  .back-to-top {
+    position: fixed;
+    bottom: calc(var(--safe-bottom) + 20px);
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    background: rgba(193, 0, 0, 0.95);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(193, 0, 0, 0.5);
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(4px);
+  }
+  
+  .back-to-top.show {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .back-to-top:active {
+    transform: scale(0.9);
+    background: var(--primary-color);
+  }
+  
+  .toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-size: 14px;
+    z-index: 2000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    max-width: 80%;
+    text-align: center;
+    backdrop-filter: blur(4px);
+  }
+  
+  .toast.show {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  @media (min-width: 480px) {
+    html { font-size: 15px; }
+    
+    .input-section {
+      padding: 20px;
+    }
+    
+    .input-group {
+      margin-bottom: 12px;
+      padding: 8px;
+    }
+    
+    .input-group .label {
+      width: 50px;
+      height: 44px;
+      font-size: 15px;
+    }
+    
+    .input-group input {
+      height: 44px;
+      font-size: 17px;
+    }
+    
+    .submit-btn {
+      height: 54px;
+      font-size: 18px;
+    }
+    
+    .result-content {
+      padding: 20px;
+    }
+    
+    table {
+      font-size: 13px;
+    }
+    
+    table th, table td {
+      padding: 10px 12px;
+    }
+    
+    .value-num, .value-pct {
+      font-size: 13px;
+    }
+  }
+  
+  @media (min-width: 768px) {
+    html { font-size: 15px; }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    }
+    
+    .header {
+      border-radius: 0;
+    }
+    
+    .input-section {
+      padding: 24px;
+      border-radius: 0 0 20px 20px;
+    }
+    
+    .input-group {
+      margin-bottom: 14px;
+      padding: 10px;
+    }
+    
+    .input-group .label {
+      width: 56px;
+      height: 46px;
+      font-size: 15px;
+    }
+    
+    .input-group input {
+      height: 46px;
+      font-size: 17px;
+    }
+    
+    .submit-btn {
+      height: 56px;
+      font-size: 18px;
+    }
+    
+    .result-content {
+      padding: 24px;
+    }
+    
+    .result-content h2 {
+      font-size: 20px;
+    }
+    
+    .result-content h3 {
+      font-size: 18px;
+    }
+    
+    .result-content h4 {
+      font-size: 16px;
+    }
+    
+    .result-content p {
+      font-size: 15px;
+    }
+    
+    table {
+      font-size: 14px;
+    }
+    
+    table th, table td {
+      padding: 12px 14px;
+    }
+    
+    .value-num, .value-pct {
+      font-size: 14px;
+    }
+    
+    .stock-card {
+      padding: 20px;
+    }
+    
+    .stock-card .stock-name {
+      font-size: 16px;
+    }
+  }
+  
+  @media (min-width: 1024px) {
+    .container {
+      max-width: 900px;
+    }
+    
+    .input-section {
+      padding: 28px;
+    }
+    
+    .result-content {
+      padding: 28px;
+    }
   }
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="input-section">
+  <div class="header">
     <h1>个股同行分析</h1>
-    
+  </div>
+  
+  <div class="input-section">
     <div id="stock-inputs">
       <div class="input-group">
-        <span class="label">股票A</span>
-        <input type="text" id="stock-A" placeholder="请输入股票代码，如 000538" maxlength="6" />
+        <span class="label">A</span>
+        <input type="text" id="stock-A" placeholder="请输入股票代码" maxlength="6" />
         <button class="remove-btn" style="display:none;">×</button>
       </div>
     </div>
 
-    <button class="add-btn" id="add-btn">+ 添加股票</button>
+    <button class="add-btn" id="add-btn">
+      <span class="icon">+</span> 添加股票
+    </button>
 
     <div class="year-select-group">
       <span class="label">选择连续年限：</span>
@@ -303,6 +753,9 @@
   </div>
 </div>
 
+<button class="back-to-top" id="back-to-top">↑</button>
+<div class="toast" id="toast"></div>
+
 <script>
   let inputCount = 1;
   const maxCount = 6;
@@ -315,7 +768,17 @@
   const resultSection = document.getElementById('result-section');
   const loading = document.getElementById('loading');
   const resultContent = document.getElementById('result-content');
+  const backToTop = document.getElementById('back-to-top');
+  const toast = document.getElementById('toast');
   let selectedYears = 5;
+
+  function showToast(msg, duration = 2000) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
+  }
 
   yearOptions.forEach(opt => {
     opt.addEventListener('click', () => {
@@ -335,7 +798,7 @@
     const div = document.createElement('div');
     div.className = 'input-group';
     div.innerHTML = `
-      <span class="label">股票${label}</span>
+      <span class="label">${label}</span>
       <input type="text" id="stock-${label}" placeholder="请输入股票代码" maxlength="6" />
       <button class="remove-btn">×</button>
     `;
@@ -356,7 +819,7 @@
       const label = group.querySelector('.label');
       const input = group.querySelector('input');
       const removeBtn = group.querySelector('.remove-btn');
-      label.textContent = `股票${stockLabels[index]}`;
+      label.textContent = stockLabels[index];
       input.id = `stock-${stockLabels[index]}`;
       removeBtn.style.display = index === 0 ? 'none' : '';
     });
@@ -365,6 +828,7 @@
   }
 
   function showError(msg) {
+    showToast(msg, 3000);
     errorMsg.textContent = msg;
     errorMsg.style.display = 'block';
     setTimeout(() => {
@@ -382,29 +846,29 @@
     return val.toFixed(2) + '%';
   }
 
-  function renderStockTable(stock, label) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+  function renderStockTable(stock) {
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
     html += `</tr></thead>`;
     
     html += `<tbody>`;
-    html += `<tr><td class="metric-name">总资产</td>`;
+    html += `<tr><td>总资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">总资产增长率</td>`;
+    html += `<tr><td>总资产增长率</td>`;
     stock.periods.forEach(p => {
       const val = stock.growth_data['资产合计增长率'] && stock.growth_data['资产合计增长率'][p];
       html += `<td class="value-pct">${formatPercent(val)}</td>`;
     });
     html += `</tr>`;
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -421,29 +885,29 @@
   }
 
   function renderDebtTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
     html += `</tr></thead>`;
     
     html += `<tbody>`;
-    html += `<tr><td class="metric-name">总资产</td>`;
+    html += `<tr><td>总资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">总负债</td>`;
+    html += `<tr><td>总负债</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['负债合计'] && stock.balance_sheet['负债合计'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">资产负债率</td>`;
+    html += `<tr><td>资产负债率</td>`;
     stock.periods.forEach(p => {
       const total = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p];
       const debt = stock.balance_sheet['负债合计'] && stock.balance_sheet['负债合计'][p];
@@ -455,7 +919,7 @@
       }
     });
     html += `</tr>`;
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -472,8 +936,8 @@
   }
 
   function renderCashDebtTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -481,21 +945,21 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">货币资金</td>`;
+    html += `<tr><td>货币资金</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['货币资金'] && stock.balance_sheet['货币资金'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">交易性金融资产</td>`;
+    html += `<tr><td>交易性金融资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['交易性金融资产'] && stock.balance_sheet['交易性金融资产'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">准货币资金</td>`;
+    html += `<tr><td>准货币资金</td>`;
     stock.periods.forEach(p => {
       const cash = stock.balance_sheet['货币资金'] && stock.balance_sheet['货币资金'][p] || 0;
       const trading = stock.balance_sheet['交易性金融资产'] && stock.balance_sheet['交易性金融资产'][p] || 0;
@@ -504,42 +968,42 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">短期借款</td>`;
+    html += `<tr><td>短期借款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['短期借款'] && stock.balance_sheet['短期借款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">一年内到期的非流动负债</td>`;
+    html += `<tr><td>一年内到期的非流动负债</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['一年内到期的非流动负债'] && stock.balance_sheet['一年内到期的非流动负债'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">长期借款</td>`;
+    html += `<tr><td>长期借款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['长期借款'] && stock.balance_sheet['长期借款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应付债券</td>`;
+    html += `<tr><td>应付债券</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应付债券'] && stock.balance_sheet['应付债券'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">长期应付款</td>`;
+    html += `<tr><td>长期应付款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['长期应付款'] && stock.balance_sheet['长期应付款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">有息负债</td>`;
+    html += `<tr><td>有息负债</td>`;
     stock.periods.forEach(p => {
       const short = stock.balance_sheet['短期借款'] && stock.balance_sheet['短期借款'][p] || 0;
       const current = stock.balance_sheet['一年内到期的非流动负债'] && stock.balance_sheet['一年内到期的非流动负债'][p] || 0;
@@ -551,7 +1015,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">偿债风险(准货币-有息负债)</td>`;
+    html += `<tr><td>偿债风险(准货币-有息负债)</td>`;
     stock.periods.forEach(p => {
       const cash = stock.balance_sheet['货币资金'] && stock.balance_sheet['货币资金'][p] || 0;
       const trading = stock.balance_sheet['交易性金融资产'] && stock.balance_sheet['交易性金融资产'][p] || 0;
@@ -567,7 +1031,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">有息负债占比总负债</td>`;
+    html += `<tr><td>有息负债占比总负债</td>`;
     stock.periods.forEach(p => {
       const short = stock.balance_sheet['短期借款'] && stock.balance_sheet['短期借款'][p] || 0;
       const current = stock.balance_sheet['一年内到期的非流动负债'] && stock.balance_sheet['一年内到期的非流动负债'][p] || 0;
@@ -585,7 +1049,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">有息负债占比总资产</td>`;
+    html += `<tr><td>有息负债占比总资产</td>`;
     stock.periods.forEach(p => {
       const short = stock.balance_sheet['短期借款'] && stock.balance_sheet['短期借款'][p] || 0;
       const current = stock.balance_sheet['一年内到期的非流动负债'] && stock.balance_sheet['一年内到期的非流动负债'][p] || 0;
@@ -603,7 +1067,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -620,8 +1084,8 @@
   }
 
   function renderCompeteTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -629,42 +1093,42 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">应付票据</td>`;
+    html += `<tr><td>应付票据</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应付票据'] && stock.balance_sheet['应付票据'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应付账款</td>`;
+    html += `<tr><td>应付账款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应付账款'] && stock.balance_sheet['应付账款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">预收款项</td>`;
+    html += `<tr><td>预收款项</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['预收款项'] && stock.balance_sheet['预收款项'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">合同负债</td>`;
+    html += `<tr><td>合同负债</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['合同负债'] && stock.balance_sheet['合同负债'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">长期应付款</td>`;
+    html += `<tr><td>长期应付款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['长期应付款'] && stock.balance_sheet['长期应付款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应付预收合计</td>`;
+    html += `<tr><td>应付预收合计</td>`;
     stock.periods.forEach(p => {
       const np = stock.balance_sheet['应付票据'] && stock.balance_sheet['应付票据'][p] || 0;
       const ap = stock.balance_sheet['应付账款'] && stock.balance_sheet['应付账款'][p] || 0;
@@ -676,42 +1140,42 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收票据</td>`;
+    html += `<tr><td>应收票据</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应收票据'] && stock.balance_sheet['应收票据'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收账款</td>`;
+    html += `<tr><td>应收账款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收款项融资</td>`;
+    html += `<tr><td>应收款项融资</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应收款项融资'] && stock.balance_sheet['应收款项融资'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">预付款项</td>`;
+    html += `<tr><td>预付款项</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['预付款项'] && stock.balance_sheet['预付款项'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">合同资产</td>`;
+    html += `<tr><td>合同资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['合同资产'] && stock.balance_sheet['合同资产'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收预付合计</td>`;
+    html += `<tr><td>应收预付合计</td>`;
     stock.periods.forEach(p => {
       const rp = stock.balance_sheet['应收票据'] && stock.balance_sheet['应收票据'][p] || 0;
       const ra = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p] || 0;
@@ -723,7 +1187,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应付预收占比</td>`;
+    html += `<tr><td>应付预收占比</td>`;
     stock.periods.forEach(p => {
       const np = stock.balance_sheet['应付票据'] && stock.balance_sheet['应付票据'][p] || 0;
       const ap = stock.balance_sheet['应付账款'] && stock.balance_sheet['应付账款'][p] || 0;
@@ -741,7 +1205,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收预付占比</td>`;
+    html += `<tr><td>应收预付占比</td>`;
     stock.periods.forEach(p => {
       const rp = stock.balance_sheet['应收票据'] && stock.balance_sheet['应收票据'][p] || 0;
       const ra = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p] || 0;
@@ -759,7 +1223,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">差额(应付预收-应收预付)</td>`;
+    html += `<tr><td>差额(应付预收-应收预付)</td>`;
     stock.periods.forEach(p => {
       const np = stock.balance_sheet['应付票据'] && stock.balance_sheet['应付票据'][p] || 0;
       const ap = stock.balance_sheet['应付账款'] && stock.balance_sheet['应付账款'][p] || 0;
@@ -780,7 +1244,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">竞争优势(差额/总资产)</td>`;
+    html += `<tr><td>竞争优势(差额/总资产)</td>`;
     stock.periods.forEach(p => {
       const np = stock.balance_sheet['应付票据'] && stock.balance_sheet['应付票据'][p] || 0;
       const ap = stock.balance_sheet['应付账款'] && stock.balance_sheet['应付账款'][p] || 0;
@@ -807,7 +1271,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -824,8 +1288,8 @@
   }
 
   function renderReceivableTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -833,21 +1297,21 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">应收账款</td>`;
+    html += `<tr><td>应收账款</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">合同资产</td>`;
+    html += `<tr><td>合同资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['合同资产'] && stock.balance_sheet['合同资产'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收合同合计</td>`;
+    html += `<tr><td>应收合同合计</td>`;
     stock.periods.forEach(p => {
       const ar = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p] || 0;
       const ca = stock.balance_sheet['合同资产'] && stock.balance_sheet['合同资产'][p] || 0;
@@ -856,7 +1320,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">产品竞争力(应收合同合计/总资产)</td>`;
+    html += `<tr><td>产品竞争力(应收合同合计/总资产)</td>`;
     stock.periods.forEach(p => {
       const ar = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p] || 0;
       const ca = stock.balance_sheet['合同资产'] && stock.balance_sheet['合同资产'][p] || 0;
@@ -871,7 +1335,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -888,8 +1352,8 @@
   }
 
   function renderFixedAssetTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -897,28 +1361,28 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">固定资产</td>`;
+    html += `<tr><td>固定资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['固定资产合计'] && stock.balance_sheet['固定资产合计'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">在建工程</td>`;
+    html += `<tr><td>在建工程</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['在建工程合计'] && stock.balance_sheet['在建工程合计'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">工程物资</td>`;
+    html += `<tr><td>工程物资</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['工程物资'] && stock.balance_sheet['工程物资'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">固定资产合计</td>`;
+    html += `<tr><td>固定资产合计</td>`;
     stock.periods.forEach(p => {
       const fa = stock.balance_sheet['固定资产合计'] && stock.balance_sheet['固定资产合计'][p] || 0;
       const ci = stock.balance_sheet['在建工程合计'] && stock.balance_sheet['在建工程合计'][p] || 0;
@@ -928,7 +1392,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">维持竞争成本(固定资产合计/总资产)</td>`;
+    html += `<tr><td>维持竞争成本(固定资产合计/总资产)</td>`;
     stock.periods.forEach(p => {
       const fa = stock.balance_sheet['固定资产合计'] && stock.balance_sheet['固定资产合计'][p] || 0;
       const ci = stock.balance_sheet['在建工程合计'] && stock.balance_sheet['在建工程合计'][p] || 0;
@@ -944,7 +1408,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -961,8 +1425,8 @@
   }
 
   function renderInvestmentTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -970,28 +1434,28 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">其他非流动金融资产</td>`;
+    html += `<tr><td>其他非流动金融资产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['其他非流动金融资产'] && stock.balance_sheet['其他非流动金融资产'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">长期股权投资</td>`;
+    html += `<tr><td>长期股权投资</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['长期股权投资'] && stock.balance_sheet['长期股权投资'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">投资性房地产</td>`;
+    html += `<tr><td>投资性房地产</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['投资性房地产'] && stock.balance_sheet['投资性房地产'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">投资类资产合计</td>`;
+    html += `<tr><td>投资类资产合计</td>`;
     stock.periods.forEach(p => {
       const of = stock.balance_sheet['其他非流动金融资产'] && stock.balance_sheet['其他非流动金融资产'][p] || 0;
       const le = stock.balance_sheet['长期股权投资'] && stock.balance_sheet['长期股权投资'][p] || 0;
@@ -1001,7 +1465,7 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">投资类资产占比(投资类资产合计/总资产)</td>`;
+    html += `<tr><td>投资类资产占比</td>`;
     stock.periods.forEach(p => {
       const of = stock.balance_sheet['其他非流动金融资产'] && stock.balance_sheet['其他非流动金融资产'][p] || 0;
       const le = stock.balance_sheet['长期股权投资'] && stock.balance_sheet['长期股权投资'][p] || 0;
@@ -1017,7 +1481,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1033,9 +1497,9 @@
     return html;
   }
 
-  function renderInventoryRiskTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+  function renderInventoryTable(stock) {
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1043,19 +1507,19 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">存货</td>`;
+    html += `<tr><td>存货</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['存货'] && stock.balance_sheet['存货'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">存货占比(存货/总资产)</td>`;
+    html += `<tr><td>存货占比</td>`;
     stock.periods.forEach(p => {
-      const inv = stock.balance_sheet['存货'] && stock.balance_sheet['存货'][p] || 0;
+      const inventory = stock.balance_sheet['存货'] && stock.balance_sheet['存货'][p] || 0;
       const assets = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p] || 0;
       if (assets !== 0) {
-        const rate = (inv / assets * 100);
+        const rate = (inventory / assets * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1063,39 +1527,25 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">应收账款占比((应收账款+合同资产)/总资产)</td>`;
-    stock.periods.forEach(p => {
-      const ar = stock.balance_sheet['应收账款'] && stock.balance_sheet['应收账款'][p] || 0;
-      const ca = stock.balance_sheet['合同资产'] && stock.balance_sheet['合同资产'][p] || 0;
-      const assets = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p] || 0;
-      if (assets !== 0) {
-        const rate = ((ar + ca) / assets * 100);
-        html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
-      } else {
-        html += `<td class="value-pct">-</td>`;
-      }
-    });
-    html += `</tr>`;
-    
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
 
-  function renderInventoryRiskCompareTable(stocks) {
+  function renderInventoryCompareTable(stocks) {
     if (stocks.length < 2) return '';
     
     let html = '';
     for (let i = 1; i < stocks.length; i++) {
-      html += `<p>■ 下面我们看一下${stocks[i].name}存货爆雷的风险。</p>`;
-      html += renderInventoryRiskTable(stocks[i]);
+      html += `<p>■ 下面我们看一下${stocks[i].name}的存货占总资产的比率。</p>`;
+      html += renderInventoryTable(stocks[i]);
     }
     return html;
   }
 
   function renderGoodwillTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1103,19 +1553,19 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">商誉</td>`;
+    html += `<tr><td>商誉</td>`;
     stock.periods.forEach(p => {
       const val = stock.balance_sheet['商誉'] && stock.balance_sheet['商誉'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">商誉占比(商誉/总资产)</td>`;
+    html += `<tr><td>商誉占比</td>`;
     stock.periods.forEach(p => {
-      const gw = stock.balance_sheet['商誉'] && stock.balance_sheet['商誉'][p] || 0;
+      const goodwill = stock.balance_sheet['商誉'] && stock.balance_sheet['商誉'][p] || 0;
       const assets = stock.balance_sheet['资产合计'] && stock.balance_sheet['资产合计'][p] || 0;
       if (assets !== 0) {
-        const rate = (gw / assets * 100);
+        const rate = (goodwill / assets * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1123,7 +1573,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1133,15 +1583,15 @@
     
     let html = '';
     for (let i = 1; i < stocks.length; i++) {
-      html += `<p>■ 下面我们看一下${stocks[i].name}商誉爆雷的风险。</p>`;
+      html += `<p>■ 下面我们看一下${stocks[i].name}的商誉占总资产的比率。</p>`;
       html += renderGoodwillTable(stocks[i]);
     }
     return html;
   }
 
   function renderRevenueTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1149,21 +1599,21 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">营业收入</td>`;
+    html += `<tr><td>营业收入</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p];
+      const val = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">增长率</td>`;
+    html += `<tr><td>营业收入增长率</td>`;
     stock.periods.forEach(p => {
-      const val = stock.growth_data['营业总收入增长率'] && stock.growth_data['营业总收入增长率'][p];
+      const val = stock.growth_data['营业收入增长率'] && stock.growth_data['营业收入增长率'][p];
       html += `<td class="value-pct">${formatPercent(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1173,15 +1623,15 @@
     
     let html = '';
     for (let i = 1; i < stocks.length; i++) {
-      html += `<p>■ 下面我们看一下${stocks[i].name}的营业收入。</p>`;
+      html += `<p>■ 下面我们看一下${stocks[i].name}的营业收入规模及增长率。</p>`;
       html += renderRevenueTable(stocks[i]);
     }
     return html;
   }
 
   function renderGrossMarginTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1189,26 +1639,26 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">营业收入</td>`;
+    html += `<tr><td>营业收入</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p];
+      const val = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业成本</td>`;
+    html += `<tr><td>营业成本</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p];
+      const val = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">毛利率</td>`;
+    html += `<tr><td>毛利率</td>`;
     stock.periods.forEach(p => {
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      if (rev !== 0) {
-        const rate = ((rev - cost) / rev * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
+      if (revenue && cost && revenue !== 0) {
+        const rate = ((revenue - cost) / revenue * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1216,29 +1666,29 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">毛利率增长率</td>`;
-    stock.periods.forEach((p, idx) => {
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      const margin = rev !== 0 ? ((rev - cost) / rev * 100) : 0;
-      
-      const year = parseInt(p.split('-')[0]);
-      const prev_year = year - 1;
-      const prev_p = `${prev_year}-12-31`;
-      const prev_rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][prev_p] || 0;
-      const prev_cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][prev_p] || 0;
-      const prev_margin = prev_rev !== 0 ? ((prev_rev - prev_cost) / prev_rev * 100) : 0;
-      
-      if (prev_margin !== 0) {
-        const rate = ((margin - prev_margin) / prev_margin * 100);
-        html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
+    html += `<tr><td>毛利率增长率</td>`;
+    stock.periods.forEach(p => {
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
+      const prev_idx = stock.periods.indexOf(p) - 1;
+      if (prev_idx >= 0) {
+        const prev_p = stock.periods[prev_idx];
+        const prev_revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][prev_p];
+        const prev_cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][prev_p];
+        if (revenue && cost && prev_revenue && prev_cost && prev_revenue !== 0 && prev_cost !== 0) {
+          const curr_rate = ((revenue - cost) / revenue * 100);
+          const prev_rate = ((prev_revenue - prev_cost) / prev_revenue * 100);
+          const growth = ((curr_rate - prev_rate) / prev_rate * 100);
+          html += `<td class="value-pct">${growth.toFixed(2)}%</td>`;
+        } else {
+          html += `<td class="value-pct">-</td>`;
+        }
       } else {
         html += `<td class="value-pct">-</td>`;
       }
     });
     html += `</tr>`;
-    
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1255,8 +1705,8 @@
   }
 
   function renderPeriodCostTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1264,62 +1714,12 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">销售费用</td>`;
+    html += `<tr><td>毛利率</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">管理费用</td>`;
-    stock.periods.forEach(p => {
-      const val = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">研发费用</td>`;
-    stock.periods.forEach(p => {
-      const val = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">财务费用</td>`;
-    stock.periods.forEach(p => {
-      const val = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">四费合计</td>`;
-    stock.periods.forEach(p => {
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const val = se + ma + rd + fi;
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">营业收入</td>`;
-    stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">费用率(四费合计/营业收入)</td>`;
-    stock.periods.forEach(p => {
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const total = se + ma + rd + fi;
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      if (rev !== 0) {
-        const rate = (total / rev * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
+      if (revenue && cost && revenue !== 0) {
+        const rate = ((revenue - cost) / revenue * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1327,12 +1727,17 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">毛利率</td>`;
+    html += `<tr><td>期间费用率</td>`;
     stock.periods.forEach(p => {
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      if (rev !== 0) {
-        const rate = ((rev - cost) / rev * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      const ae = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p] || 0;
+      const re = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p] || 0;
+      const fe = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p] || 0;
+      let total_expense = se + ae + re;
+      if (fe >= 0) total_expense += fe;
+      if (revenue && revenue !== 0) {
+        const rate = (total_expense / revenue * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1340,27 +1745,32 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">费用率与毛利率比率(费用率/毛利率)</td>`;
+    html += `<tr><td>期间费用率/毛利率</td>`;
     stock.periods.forEach(p => {
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const total = se + ma + rd + fi;
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      const expense_rate = rev !== 0 ? (total / rev * 100) : 0;
-      const margin = rev !== 0 ? ((rev - cost) / rev * 100) : 0;
-      if (margin !== 0) {
-        const rate = (expense_rate / margin * 100);
-        html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      const ae = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p] || 0;
+      const re = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p] || 0;
+      const fe = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p] || 0;
+      if (revenue && cost && revenue !== 0) {
+        const gross_rate = ((revenue - cost) / revenue * 100);
+        let total_expense = se + ae + re;
+        if (fe >= 0) total_expense += fe;
+        const expense_rate = (total_expense / revenue * 100);
+        if (gross_rate !== 0) {
+          const ratio = (expense_rate / gross_rate * 100);
+          html += `<td class="value-pct">${ratio.toFixed(2)}%</td>`;
+        } else {
+          html += `<td class="value-pct">-</td>`;
+        }
       } else {
         html += `<td class="value-pct">-</td>`;
       }
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1377,8 +1787,8 @@
   }
 
   function renderSalesCostTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1386,26 +1796,26 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">销售费用</td>`;
+    html += `<tr><td>营业收入</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p];
+      const val = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业收入</td>`;
+    html += `<tr><td>销售费用</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p];
+      const val = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">销售费用率(销售费用/营业收入)</td>`;
+    html += `<tr><td>销售费用率</td>`;
     stock.periods.forEach(p => {
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      if (rev !== 0) {
-        const rate = (se / rev * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      if (revenue && revenue !== 0) {
+        const rate = (se / revenue * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1413,7 +1823,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1430,8 +1840,8 @@
   }
 
   function renderMainProfitTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1439,93 +1849,88 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">销售费用</td>`;
+    html += `<tr><td>营业收入</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p];
+      const val = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">管理费用</td>`;
+    html += `<tr><td>营业成本</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p];
+      const val = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">研发费用</td>`;
+    html += `<tr><td>税金及附加</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p];
+      const val = stock.income_statement['税金及附加'] && stock.income_statement['税金及附加'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">财务费用</td>`;
+    html += `<tr><td>销售费用</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p];
+      const val = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">四费合计</td>`;
+    html += `<tr><td>管理费用</td>`;
     stock.periods.forEach(p => {
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const val = se + ma + rd + fi;
+      const val = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业收入</td>`;
+    html += `<tr><td>研发费用</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p];
+      const val = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业成本</td>`;
+    html += `<tr><td>财务费用</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p];
+      const val = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业税金及附加</td>`;
+    html += `<tr><td>主营利润</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业税金及附加'] && stock.income_sheet['营业税金及附加'][p];
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p] || 0;
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p] || 0;
+      const tax = stock.income_statement['税金及附加'] && stock.income_statement['税金及附加'][p] || 0;
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      const ae = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p] || 0;
+      const re = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p] || 0;
+      const fe = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p] || 0;
+      const val = revenue - cost - tax - se - ae - re - fe;
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">主营利润</td>`;
+    html += `<tr><td>营业利润</td>`;
     stock.periods.forEach(p => {
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      const tax = stock.income_sheet['营业税金及附加'] && stock.income_sheet['营业税金及附加'][p] || 0;
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const val = rev - cost - tax - se - ma - rd - fi;
+      const val = stock.income_statement['营业利润'] && stock.income_statement['营业利润'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">营业利润</td>`;
+    html += `<tr><td>主营利润率</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['营业利润'] && stock.income_sheet['营业利润'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">营业利润率(营业利润/营业收入)</td>`;
-    stock.periods.forEach(p => {
-      const op = stock.income_sheet['营业利润'] && stock.income_sheet['营业利润'][p] || 0;
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      if (rev !== 0) {
-        const rate = (op / rev * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p] || 0;
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p] || 0;
+      const tax = stock.income_statement['税金及附加'] && stock.income_statement['税金及附加'][p] || 0;
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      const ae = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p] || 0;
+      const re = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p] || 0;
+      const fe = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p] || 0;
+      const main_profit = revenue - cost - tax - se - ae - re - fe;
+      if (revenue !== 0) {
+        const rate = (main_profit / revenue * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1533,19 +1938,19 @@
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">主营利润占比营业利润</td>`;
+    html += `<tr><td>主营利润/营业利润</td>`;
     stock.periods.forEach(p => {
-      const rev = stock.income_sheet['营业收入'] && stock.income_sheet['营业收入'][p] || 0;
-      const cost = stock.income_sheet['营业成本'] && stock.income_sheet['营业成本'][p] || 0;
-      const tax = stock.income_sheet['营业税金及附加'] && stock.income_sheet['营业税金及附加'][p] || 0;
-      const se = stock.income_sheet['销售费用'] && stock.income_sheet['销售费用'][p] || 0;
-      const ma = stock.income_sheet['管理费用'] && stock.income_sheet['管理费用'][p] || 0;
-      const rd = stock.income_sheet['研发费用'] && stock.income_sheet['研发费用'][p] || 0;
-      const fi = stock.income_sheet['财务费用'] && stock.income_sheet['财务费用'][p] || 0;
-      const main_profit = rev - cost - tax - se - ma - rd - fi;
-      const op = stock.income_sheet['营业利润'] && stock.income_sheet['营业利润'][p] || 0;
-      if (op !== 0) {
-        const rate = (main_profit / op * 100);
+      const revenue = stock.income_statement['营业收入'] && stock.income_statement['营业收入'][p] || 0;
+      const cost = stock.income_statement['营业成本'] && stock.income_statement['营业成本'][p] || 0;
+      const tax = stock.income_statement['税金及附加'] && stock.income_statement['税金及附加'][p] || 0;
+      const se = stock.income_statement['销售费用'] && stock.income_statement['销售费用'][p] || 0;
+      const ae = stock.income_statement['管理费用'] && stock.income_statement['管理费用'][p] || 0;
+      const re = stock.income_statement['研发费用'] && stock.income_statement['研发费用'][p] || 0;
+      const fe = stock.income_statement['财务费用'] && stock.income_statement['财务费用'][p] || 0;
+      const main_profit = revenue - cost - tax - se - ae - re - fe;
+      const op_profit = stock.income_statement['营业利润'] && stock.income_statement['营业利润'][p] || 0;
+      if (op_profit !== 0) {
+        const rate = (main_profit / op_profit * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1553,7 +1958,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1570,8 +1975,8 @@
   }
 
   function renderNetProfitCashTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1579,26 +1984,26 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">经营活动产生的现金流量净额</td>`;
+    html += `<tr><td>净利润</td>`;
     stock.periods.forEach(p => {
-      const val = stock.cashflow_sheet['经营活动产生的现金流量净额'] && stock.cashflow_sheet['经营活动产生的现金流量净额'][p];
+      const val = stock.income_statement['净利润'] && stock.income_statement['净利润'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">净利润</td>`;
+    html += `<tr><td>经营活动产生的现金流量净额</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['净利润'] && stock.income_sheet['净利润'][p];
+      const val = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">净利润现金比(净利润/经营活动现金流量净额)</td>`;
+    html += `<tr><td>净利润现金比率</td>`;
     stock.periods.forEach(p => {
-      const cash = stock.cashflow_sheet['经营活动产生的现金流量净额'] && stock.cashflow_sheet['经营活动产生的现金流量净额'][p] || 0;
-      const np = stock.income_sheet['净利润'] && stock.income_sheet['净利润'][p] || 0;
-      if (cash !== 0) {
-        const rate = (np / cash * 100);
+      const np = stock.income_statement['净利润'] && stock.income_statement['净利润'][p] || 0;
+      const cf = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p] || 0;
+      if (np !== 0) {
+        const rate = (cf / np * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1606,7 +2011,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1623,8 +2028,8 @@
   }
 
   function renderROETable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1632,45 +2037,28 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">归属于母公司所有者的净利润</td>`;
+    html += `<tr><td>归母净利润</td>`;
     stock.periods.forEach(p => {
-      const val = stock.income_sheet['归属于母公司所有者的净利润'] && stock.income_sheet['归属于母公司所有者的净利润'][p];
+      const val = stock.income_statement['归属于母公司所有者的净利润'] && stock.income_statement['归属于母公司所有者的净利润'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">归属于母公司所有者权益合计</td>`;
-    stock.periods.forEach(p => {
-      const val = stock.balance_sheet['归属于母公司所有者权益合计'] && stock.balance_sheet['归属于母公司所有者权益合计'][p];
-      html += `<td class="value-num">${formatNumber(val)}</td>`;
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">净资产收益率(ROE)</td>`;
-    stock.periods.forEach(p => {
-      const np = stock.income_sheet['归属于母公司所有者的净利润'] && stock.income_sheet['归属于母公司所有者的净利润'][p] || 0;
-      const equity = stock.balance_sheet['归属于母公司所有者权益合计'] && stock.balance_sheet['归属于母公司所有者权益合计'][p] || 0;
-      if (equity !== 0) {
-        const rate = (np / equity * 100);
-        html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
-      } else {
-        html += `<td class="value-pct">-</td>`;
-      }
-    });
-    html += `</tr>`;
-    
-    html += `<tr><td class="metric-name">归属于母公司所有者的净利润增长率</td>`;
+    html += `<tr><td>归母净利润增长率</td>`;
     stock.periods.forEach(p => {
       const val = stock.growth_data['归母净利润增长率'] && stock.growth_data['归母净利润增长率'][p];
-      if (val !== null && val !== undefined) {
-        html += `<td class="value-pct">${val.toFixed(2)}%</td>`;
-      } else {
-        html += `<td class="value-pct">-</td>`;
-      }
+      html += `<td class="value-pct">${formatPercent(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `<tr><td>ROE</td>`;
+    stock.periods.forEach(p => {
+      const val = stock.growth_data['ROE'] && stock.growth_data['ROE'][p];
+      html += `<td class="value-pct">${formatPercent(val)}</td>`;
+    });
+    html += `</tr>`;
+    
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1687,8 +2075,8 @@
   }
 
   function renderFixedAssetInvestTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1696,26 +2084,26 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">购建固定资产、无形资产和其他长期资产支付的现金</td>`;
+    html += `<tr><td>购建固定资产支付的现金</td>`;
     stock.periods.forEach(p => {
-      const val = stock.cashflow_sheet['购建固定资产、无形资产和其他长期资产支付的现金'] && stock.cashflow_sheet['购建固定资产、无形资产和其他长期资产支付的现金'][p];
+      const val = stock.cash_flow['购建固定资产、无形资产和其他长期资产支付的现金'] && stock.cash_flow['购建固定资产、无形资产和其他长期资产支付的现金'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">经营活动产生的现金流量净额</td>`;
+    html += `<tr><td>经营活动产生的现金流量净额</td>`;
     stock.periods.forEach(p => {
-      const val = stock.cashflow_sheet['经营活动产生的现金流量净额'] && stock.cashflow_sheet['经营活动产生的现金流量净额'][p];
+      const val = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p];
       html += `<td class="value-num">${formatNumber(val)}</td>`;
     });
     html += `</tr>`;
     
-    html += `<tr><td class="metric-name">购建固定资产占比现金流量净额</td>`;
+    html += `<tr><td>购建固定资产占比</td>`;
     stock.periods.forEach(p => {
-      const invest = stock.cashflow_sheet['购建固定资产、无形资产和其他长期资产支付的现金'] && stock.cashflow_sheet['购建固定资产、无形资产和其他长期资产支付的现金'][p] || 0;
-      const cash = stock.cashflow_sheet['经营活动产生的现金流量净额'] && stock.cashflow_sheet['经营活动产生的现金流量净额'][p] || 0;
-      if (cash !== 0) {
-        const rate = (invest / cash * 100);
+      const fa = stock.cash_flow['购建固定资产、无形资产和其他长期资产支付的现金'] && stock.cash_flow['购建固定资产、无形资产和其他长期资产支付的现金'][p] || 0;
+      const cf = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p] || 0;
+      if (cf !== 0) {
+        const rate = (fa / cf * 100);
         html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
@@ -1723,7 +2111,7 @@
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1740,8 +2128,8 @@
   }
 
   function renderDividendTable(stock) {
-    let html = `<table>`;
-    html += `<thead><tr><th>${stock.name}(${stock.code})</th>`;
+    let html = `<div class="stock-card"><div class="stock-name">${stock.name}(${stock.code})</div><div class="scroll-hint">← 左右滑动查看更多 →</div><div class="table-wrapper"><table>`;
+    html += `<thead><tr><th>指标</th>`;
     stock.periods.forEach(p => {
       html += `<th>${p}</th>`;
     });
@@ -1749,18 +2137,34 @@
     
     html += `<tbody>`;
     
-    html += `<tr><td class="metric-name">分红率</td>`;
+    html += `<tr><td>分配股利、利润或偿付利息支付的现金</td>`;
     stock.periods.forEach(p => {
-      const val = stock.growth_data['分红率'] && stock.growth_data['分红率'][p];
-      if (val !== null && val !== undefined) {
-        html += `<td class="value-pct">${val.toFixed(2)}%</td>`;
+      const val = stock.cash_flow['分配股利、利润或偿付利息支付的现金'] && stock.cash_flow['分配股利、利润或偿付利息支付的现金'][p];
+      html += `<td class="value-num">${formatNumber(val)}</td>`;
+    });
+    html += `</tr>`;
+    
+    html += `<tr><td>经营活动产生的现金流量净额</td>`;
+    stock.periods.forEach(p => {
+      const val = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p];
+      html += `<td class="value-num">${formatNumber(val)}</td>`;
+    });
+    html += `</tr>`;
+    
+    html += `<tr><td>分红率</td>`;
+    stock.periods.forEach(p => {
+      const dividend = stock.cash_flow['分配股利、利润或偿付利息支付的现金'] && stock.cash_flow['分配股利、利润或偿付利息支付的现金'][p] || 0;
+      const cf = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p] || 0;
+      if (cf !== 0) {
+        const rate = (dividend / cf * 100);
+        html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
       } else {
         html += `<td class="value-pct">-</td>`;
       }
     });
     html += `</tr>`;
     
-    html += `</tbody></table>`;
+    html += `</tbody></table></div></div>`;
     
     return html;
   }
@@ -1777,104 +2181,59 @@
   }
 
   function renderResult(data) {
-    const stocks = data.stocks;
-    const stockLabels = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const stocks = data.stocks || [];
+    if (stocks.length === 0) return '<p>没有获取到数据</p>';
     
-    let html = '';
+    let html = `<h2>${stocks.length}家公司财务报表对比分析</h2>`;
     
-    html += `<h2>通过财报读懂企业的18个步骤（1-10）</h2>`;
+    html += `<h4>〇 第1步，看总资产，了解公司的整体规模及增长情况。</h4>`;
+    html += `<p>■ 总资产主要看两点，一是规模，二是增长率。规模越大，行业地位越高；增长率大于10%，属于扩张期。</p>`;
     
-    html += `<h3>如何通过三大财务报表看懂一家公司1</h3>`;
-    html += `<p>■ 通过三大财务报表看懂一家公司，可以分为以下 18步。</p>`;
-    
-    html += `<h4>〇 第1步，准备好相关公司的年报。</h4>`;
-    html += `<p>■ 我们要把目标公司过去5-10年的年报下载下来，年报的期数越多越好。最好连招股说明书也下载下来。另外目标公司同行业前3名公司过去5-10年的年报也要下载下来。</p>`;
-    html += `<p>年报下载网址：<a href="http://www.cninfo.com.cn/new/index" target="_blank">http://www.cninfo.com.cn/new/index</a></p>`;
-    
-    html += `<h4>〇 第2步，先看目标公司最近期的合并资产负债表。</h4>`;
-    html += `<p>■ 打开${stocks.length}家公司最近期的合并资产负债表。</p>`;
-    
-    html += `<h4>〇 第3步，看总资产，了解公司的实力和成长性。</h4>`;
-    html += `<p>■ 总资产我们重点看两点，一是总资产的规模；二是总资产的同比增长率。</p>`;
-    
-    html += `<p>■ 下面我们看一下${stocks[0].name}的总资产规模及增长率。</p>`;
-    html += renderStockTable(stocks[0], 'A');
-    
-    html += `<p>■ 一家公司的总资产规模代表这家公司掌控的资源规模，也就是这家公司的实力。</p>`;
-    html += `<p>■ 通过一家公司的总资产规模，在一定程度上能看出这家公司在行业中的地位。</p>`;
-    html += `<p>■ 某个行业中总资产排名第一的公司，虽然不一定就是这个行业中最好的公司，但一定是这个行业中很有影响力的公司。</p>`;
-    html += `<p>■ 一般情况下，总资产规模排名第一的公司就是这个行业中的老大。</p>`;
-    html += `<p>■ 另外总资产同比增长率大于10%的公司一般处于扩张之中，这样的公司成长性较好。</p>`;
-    html += `<p>■ 如果一家公司的总资产同比负增长，那么这家公司很可能处于收缩或者衰退之中。</p>`;
+    html += `<p>■ 下面我们先看一下${stocks[0].name}的总资产规模及增长率。</p>`;
+    html += renderStockTable(stocks[0]);
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderCompareTable(stocks);
-      html += `<p>■ 通过对比，${stocks.length}家公司哪家公司的实力强、成长性好还是一目了然的。</p>`;
-      html += `<p>■ 总资产规模最大，同比增长较快，也并不一定代表公司最强，因为总资产中也有可能95%的部分是负债。</p>`;
-      html += `<p>■ 总资产同比增长较快也可能是来自债务的扩张而不是公司净利润的增长，公司可能已经处于债务危机当中。这就要用到接下来的第二步分析。</p>`;
     }
     
-    html += `<h4>〇 第4步，看负债，了解公司的偿债风险。</h4>`;
-    html += `<p>■ 负债主要看两点，一是资产负债率，二是准货币资金减有息负债的差额。</p>`;
-    html += `<p>■ 从这两个方面我们可以判断出公司的偿债风险。</p>`;
-    html += `<p>■ 资产负债率=总负债/总资产*100%。</p>`;
-    html += `<p>■ 资产负债率等于70%为警戒线，如果一家公司的资产负债率大于70%，这家公司发生债务危机的可能性就会变大。</p>`;
+    html += `<h4>〇 第2步，看资产负债率，了解公司的负债水平及偿债风险。</h4>`;
+    html += `<p>■ 资产负债率主要看两点，一是数值，二是变动趋势。资产负债率大于60%的公司淘汰掉。</p>`;
     
-    html += `<p>■ 下面我们来看一下${stocks[0].name}过去${stocks[0].periods.length}年的资产负债率。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的资产负债率。</p>`;
     html += renderDebtTable(stocks[0]);
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderDebtCompareTable(stocks);
-      html += `<p>通过${stocks.length}家公司的对比，哪家的负债率越大？</p>`;
-      html += `<p>■ 在投资实践中一般会把资产负债率大于60%的公司淘汰掉。资产负债率小于40%的公司，基本没有偿债风险。资产负债率大于40%小于60%的公司，偿债风险比较小，但在特殊情况下依然可能发生偿债危机。</p>`;
-      html += `<p>■ 为了排除这类公司的偿债风险，我们需要看一下准货币资金减有息负债的差额是否大于0？如果大于0，公司没有偿债风险；如果小于0，公司依然有偿债风险，最好淘汰掉。</p>`;
     }
     
-    html += `<p>■ 下面我们也看一下${stocks[0].name}的准货币资金减有息负债的差额。</p>`;
-    html += `<p>■ 准货币资金=货币资金+交易性金融资产</p>`;
-    html += `<p>■ 有息负债=短期借款＋一年内到期的非流动负债＋长期借款＋应付债券＋长期应付款</p>`;
+    html += `<h4>〇 第3步，看准货币资金减有息负债差额，了解公司的真实偿债能力。</h4>`;
+    html += `<p>■ 准货币资金减有息负债差额主要看两点，一是数值，二是变动趋势。准货币资金减有息负债差额小于0的公司淘汰掉。</p>`;
+    
+    html += `<p>■ 下面我们看一下${stocks[0].name}的准货币资金减有息负债的差额。</p>`;
     html += renderCashDebtTable(stocks[0]);
     
-    html += `<p>准货币资金-有息负债的差额越大越好，差额越大，说明企业的偿债能力好，没有偿债风险，如果差额远远大于0，将能进一步确认企业没有偿债风险。</p>`;
-    
     if (stocks.length > 1) {
-      html += `<p>对比一下同行</p>`;
+      html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderCashDebtCompareTable(stocks);
-      html += `<p>通过对比，哪家企业的偿债能力好？</p>`;
     }
     
-    html += `<h4>〇 第5步，看“应付预收”减“应收预付”的差额，了解公司的竞争优势。</h4>`;
-    html += `<p>“应付”指应付票据、应付账款；“预收”指预收款项、合同负债。合同负债是2019年财报中新出现的一个科目，和预收款项很像，可以看作预收款项。</p>`;
-    html += `<p>“应收”指应收票据、应收账款、应收款项融资、合同资产；“预付”指预付款项。应收款项融资、合同资产是2019年财报中新出现的科目，应收款项融资可以看作银行承兑票据，合同资产可以看作应收账款。</p>`;
-    html += `<p>■ 差额越大，公司的竞争优势越强；差额小于0，公司的竞争力弱，淘汰掉。</p>`;
-    html += `<p>■ 差额=（应付票据+应付账款+预收款项+合同负债）-（应收票据+应收账款+应收款项融资+预付款项+合同资产）</p>`;
+    html += `<h4>〇 第4步，看“应付预收”减“应收预付”差额，了解公司的行业地位及竞争力。</h4>`;
+    html += `<p>■ “应付预收”减“应收预付”差额主要看两点，一是数值，二是变动趋势。“应付预收”减“应收预付”差额小于0的公司淘汰掉。</p>`;
     
-    html += `<p>■ 下面我们来看一下${stocks[0].name}过去${stocks[0].periods.length}年“应付预收”减“应收预付”的差额。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的“应付预收”减“应收预付”的差额。</p>`;
     html += renderCompeteTable(stocks[0]);
-    
-    html += `<p>■ 应收票据、应收账款、应收款项融资、合同资产、预付款项的金额越小，代表公司对经销商和供应商的话语权越强，竞争优势越明显，行业地位越高。</p>`;
-    html += `<p>■ 应付票据、应付账款、预收款项、合同负债的金额越大，代表公司对供应商和经销商的话语权越强，竞争优势越明显，行业地位越高。</p>`;
-    html += `<p>■ “应付预收”减去“应收预付”的差额大于0，说明公司在经营过程中无偿占用了供应商和经销商的资金，具有“两头吃”的能力。</p>`;
-    html += `<p>■ 这相当于上下游公司为公司提供了无息贷款，差额越大说明公司的竞争力越强。</p>`;
-    html += `<p>■ 没有公司会心甘情愿的让其他公司无偿占用自己的资金，为什么上下游公司愿意让公司无偿占用自己的资金呢？一定是公司具备某种竞争优势。</p>`;
-    html += `<p>■ “应付预收”减去“应收预付”的差额小于0，说明公司的资金被上下游公司无偿占用了，公司的竞争力较弱，竞争优势不明显。</p>`;
-    html += `<p>■ 在投资实践中，我们一般会把（应付票据+应付账款+预收款项+合同负债）-（应收票据+应收账款+应收款项融资+预付款项+合同资产）小于0的公司淘汰掉。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderCompeteCompareTable(stocks);
-      html += `<p>通过这${stocks.length}家公司的过去${stocks[0].periods.length}年的“应付预收”减“应收预付”的差额，我们可以判断出来哪家公司更具竞争优势？</p>`;
     }
     
-    html += `<p>■ 在了解了公司的整体竞争力之后，我们还需要了解一下公司的产品竞争力。</p>`;
-    html += `<p>■ 产品竞争力是公司竞争力的基础，产品竞争力强的公司更有可能在未来长期保持竞争优势。</p>`;
+    html += `<h4>〇 第5步，看应收账款，了解公司产品的竞争力。</h4>`;
+    html += `<p>■ 应收账款主要看两点，一是规模，二是占比。应收账款占总资产的比率大于30%的公司淘汰掉。</p>`;
     
-    html += `<h4>〇 第6步，看应收账款、合同资产，了解公司的产品竞争力。</h4>`;
-    html += `<p>■ 最优秀的公司（应收账款+合同资产）占总资产的比率小于1%，优秀的公司一般小于3%。（应收账款+合同资产）占总资产的比率大于15%的公司需要淘汰掉。</p>`;
-    
-    html += `<p>■ 下面我们来看一下${stocks[0].name}过去${stocks[0].periods.length}年（应收账款+合同资产）占总资产的比率。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的（应收账款+合同资产）占总资产的比率。</p>`;
     html += renderReceivableTable(stocks[0]);
     
     if (stocks.length > 1) {
@@ -1882,30 +2241,8 @@
       html += renderReceivableCompareTable(stocks);
     }
     
-    html += `<p>■ 应收账款、合同资产主要看占总资产的比率，最好的公司（应收账款+合同资产）占总资产的比率小于1%，优秀的公司一般小于3%。</p>`;
-    html += `<p>■ 好公司的品牌影响力强，产品一般都很畅销，要想买好公司的产品往往需要一手交钱一手交货，有时甚至需要先付钱过一段时间才能收到货，所以最好的公司基本没有应收账款。</p>`;
-    html += `<p>■ 应收账款多的公司，其品牌影响力往往较弱，产品竞争力不行。</p>`;
-    html += `<p>■ 公司靠品牌或产品自身的影响力很难有好的销量，所以公司迫不得已才会采取先交货后收钱的销售方式。</p>`;
-    html += `<p>■ （应收账款+合同资产）占总资产的比率本质反映的是公司产品的销售难易度。</p>`;
-    html += `<p>■ （应收账款+合同资产）占总资产的比率小于1%，表明公司的产品很畅销；</p>`;
-    html += `<p>■ 小于3%，表明公司的产品畅销；</p>`;
-    html += `<p>■ 大于10%，表明公司的产品比较难销售；</p>`;
-    html += `<p>■ 大于20%，表明公司的产品很难销售。</p>`;
-    html += `<p>■ 在投资实践中，我们一般会把（应收账款+合同资产）占总资产的比率大于15%的公司淘汰掉。</p>`;
-    html += `<p>■ 在特别情况下，对于行业第一名并且同时具有3个或以上核心竞争力的公司可以放宽到20%，大于20%的一律淘汰掉。</p>`;
-    if (stocks.length > 1) {
-      html += `<p>■ 从${stocks.length}家公司（应收账款+合同资产）占总资产的比率来看，哪家的产品竞争力最强？结合指标判断吧。</p>`;
-    }
-    
-    
-    html += `<h4>〇 第7步，看固定资产，了解公司维持竞争力的成本。</h4>`;
-    html += `<p>■ 固定资产主要看（固定资产+在建工程）占总资产的比率，比率越高说明公司维持竞争力的成本越高。</p>`;
-    html += `<p>■ 由于固定资产会变旧，公司为了保持竞争力就需要持续不断的在固定资产上进行大量投入。</p>`;
-    html += `<p>■ 这样会影响公司的自由现金流，自然也会影响股东的分红。</p>`;
-    html += `<p>■ 另外如果市场环境发生变化，已经投入的固定资产很难退出，这样就增大了公司的风险。</p>`;
-    html += `<p>■ 在投资实践中，一般选择（固定资产+在建工程）与总资产比率小于20% 的轻资产型公司，一般会把（固定资产+在建工程）与总资产比率大于40%的公司淘汰掉。</p>`;
-    html += `<p>■ 在特别情况下，对于行业第一名并且同时具有3个或以上核心竞争力的公司可以放宽到50%，大于50%的一律淘汰掉。</p>`;
-    html += `<p>■ （固定资产+在建工程）与总资产的比率大于40%的公司为重资产型公司。重资产型公司保持竞争力的成本比较高，风险比较大。另外（固定资产+在建工程）与总资产的比率保持稳定或持续下降的公司风险较小，比率短期内增幅较大的公司财务造假的可能性较大。</p>`;
+    html += `<h4>〇 第6步，看固定资产，了解公司维持竞争力的成本。</h4>`;
+    html += `<p>■ 固定资产主要看两点，一是规模，二是占比。固定资产占总资产的比率大于40%的公司淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的（固定资产+在建工程）与总资产的比率。</p>`;
     html += renderFixedAssetTable(stocks[0]);
@@ -1913,15 +2250,10 @@
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderFixedAssetCompareTable(stocks);
-      html += `<p>■ 通过对比我们发现${stocks.length}家公司中只有哪家在保持竞争力方面的成本是在降低的？哪家在未来基本不存在固定资产爆雷的风险？</p>`;
     }
     
-    html += `<h4>〇 第8步，看投资类资产，了解公司的主业专注度。</h4>`;
-    html += `<p>■ 投资类资产主要包括：以公允价值计量且其变动计入当期损益的金融资产、债权投资、其他债权投资、可供出售金融资产、持有至到期投资、长期股权投资、其他权益工具投资、其他非流动金融资产、投资性房地产。</p>`;
-    html += `<p>■ 投资类资产我们主要看投资类资产占总资产的比率。</p>`;
-    html += `<p>■ 优秀的公司一定是专注于主业的公司，与主业无关的投资类资产占总资产的比率应当很低才对，最好为0。</p>`;
-    html += `<p>■ 如果某公司投资类资产占总资产的比率较大，就意味着这家公司在自己的行业内已经很难发现好的投资机会了。</p>`;
-    html += `<p>■ 在投资实践中，一般会把投资类资产占总资产比率大于10%的公司淘汰掉。</p>`;
+    html += `<h4>〇 第7步，看投资类资产，了解公司的投资情况。</h4>`;
+    html += `<p>■ 投资类资产主要看两点，一是规模，二是占比。投资类资产占总资产的比率大于30%的公司淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的投资类资产占总资产的比率。</p>`;
     html += renderInvestmentTable(stocks[0]);
@@ -1929,70 +2261,35 @@
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderInvestmentCompareTable(stocks);
-      html += `<p>■对比发现哪个更加专注？</p>`;
     }
     
-
+    html += `<h4>〇 第8步，看存货，了解公司产品的销售情况。</h4>`;
+    html += `<p>■ 存货主要看两点，一是规模，二是占比。存货占总资产的比率大于20%的公司淘汰掉。</p>`;
     
-    html += `<h4>〇 第9步，看存货、商誉，了解公司未来业绩爆雷的风险。</h4>`;
-    html += `<p>■ 易爆雷资产主要包括应收账款、存货、长期股权投资、固定资产、商誉，这五个科目是最容易埋雷的地方，后期爆雷的时候会导致利润大幅减少甚至大幅亏损。由于我们在前六步中已经看过了应收账款、固定资产、长期股权投资科目，排除了这三个科目爆雷的风险。</p>`;
-    html += `<p>〇 这里重点看一下存货和商誉。</p>`;
-    html += `<p>■ 对于“应付预收”减“应收预付”差额大于0并且应收账款占总资产比率小于1%的公司来说，存货基本没有爆雷的风险。</p>`;
-    html += `<p>■ 对于应收账款占总资产的比率大于5%并且存货占总资产的比率大于15%的公司，爆雷的风险比较大，需要淘汰掉。</p>`;
-    
-    html += `<p>■ 下面我们先看一下${stocks[0].name}存货爆雷的风险。</p>`;
-    html += renderInventoryRiskTable(stocks[0]);
-    html += `<p>■ ${stocks[0].name}过去${stocks[0].periods.length}年存货占总资产的比率，结合指标就可以判断存货有没有爆雷的风险。</p>`;
-    
-    const latestPeriod = stocks[0].periods[0];
-    const np = stocks[0].balance_sheet['应付票据'] && stocks[0].balance_sheet['应付票据'][latestPeriod] || 0;
-    const ap = stocks[0].balance_sheet['应付账款'] && stocks[0].balance_sheet['应付账款'][latestPeriod] || 0;
-    const up = stocks[0].balance_sheet['预收款项'] && stocks[0].balance_sheet['预收款项'][latestPeriod] || 0;
-    const cl = stocks[0].balance_sheet['合同负债'] && stocks[0].balance_sheet['合同负债'][latestPeriod] || 0;
-    const lp = stocks[0].balance_sheet['长期应付款'] && stocks[0].balance_sheet['长期应付款'][latestPeriod] || 0;
-    const total_payable = np + ap + up + cl + lp;
-    
-    const rp = stocks[0].balance_sheet['应收票据'] && stocks[0].balance_sheet['应收票据'][latestPeriod] || 0;
-    const ra = stocks[0].balance_sheet['应收账款'] && stocks[0].balance_sheet['应收账款'][latestPeriod] || 0;
-    const rf = stocks[0].balance_sheet['应收款项融资'] && stocks[0].balance_sheet['应收款项融资'][latestPeriod] || 0;
-    const pp = stocks[0].balance_sheet['预付款项'] && stocks[0].balance_sheet['预付款项'][latestPeriod] || 0;
-    const ca = stocks[0].balance_sheet['合同资产'] && stocks[0].balance_sheet['合同资产'][latestPeriod] || 0;
-    const total_receivable = rp + ra + rf + pp + ca;
-    
-    const diff = total_payable - total_receivable;
-    const assets = stocks[0].balance_sheet['资产合计'] && stocks[0].balance_sheet['资产合计'][latestPeriod] || 0;
-    const ar_ratio = assets !== 0 ? ((ra + ca) / assets * 100) : 0;
-    
-    html += `<p>■ 我们还可以通过${stocks[0].name}的“应付预收”减“应收预付”的差额和应收账款占总资产比率进一步确认一下。</p>`;
-    html += `<p>■ ${stocks[0].name} ${latestPeriod}年的“应付预收”减“应收预付”的差额为${formatNumber(diff)}，应收账款占总资产比率为${ar_ratio.toFixed(2)}%。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的存货占总资产的比率。</p>`;
+    html += renderInventoryTable(stocks[0]);
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
-      html += renderInventoryRiskCompareTable(stocks);
-      html += `<p>结合上述指标判断即可判断出哪个企业暴雷风险大。</p>`;
+      html += renderInventoryCompareTable(stocks);
     }
     
-    html += `<p>■ 商誉是公司对外收购所花的超出被收购公司净资产的那部分钱。</p>`;
-    html += `<p>■ 收购来的公司企业文化不同，甚至行业也不同，很难经营成功，所以商誉是最容易爆雷的科目之一。</p>`;
-    html += `<p>■ 在所有爆雷科目中商誉一直都是那个最耀眼的明星，堪称爆雷科目中的雷神。</p>`;
-    html += `<p>■ 在A股的业绩爆雷案例中，10个爆雷的有5个来自商誉，1个来自应收账款，1个来自存货，1个来自长期股权投资，1个来自固定资产，还有1个来自其他所有可能爆雷的资产科目。</p>`;
-    html += `<p>■ 商誉占总资产的比率超过10%的公司，爆雷风险较大，需要淘汰掉。</p>`;
+    html += `<h4>〇 第9步，看商誉，了解公司并购带来的风险。</h4>`;
+    html += `<p>■ 商誉主要看两点，一是规模，二是占比。商誉占总资产的比率大于10%的公司淘汰掉。</p>`;
     
-    html += `<p>■ 下面我们先看一下${stocks[0].name}商誉爆雷的风险。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的商誉占总资产的比率。</p>`;
     html += renderGoodwillTable(stocks[0]);
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderGoodwillCompareTable(stocks);
-      html += `<p>通过对比同行发现，哪家的商誉暴雷风险越大？</p>`;
     }
     
-    html += `<h4>〇 第10步，看营业收入，了解公司的行业地位及成长性。</h4>`;
-    html += `<p>■ 营业收入主要看两点，规模和增长率。营业收入的规模越大越好，增长率最好要大于10%，越高越好。</p>`;
+    html += `<h4>〇 第10步，看营业收入，了解公司的市场份额及成长性。</h4>`;
+    html += `<p>■ 营业收入主要看两点，一是规模，二是增长率。增长率小于10%的公司淘汰掉。</p>`;
     
-    html += `<p>■ 下面我们先看一下${stocks[0].name}的营业收入。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的营业收入规模及增长率。</p>`;
     html += renderRevenueTable(stocks[0]);
-    html += `<p>■ 如果企业过去${stocks[0].periods.length}年营业收入一直在持续稳定地增长，增长率大于10%，成长性较好。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
@@ -2004,16 +2301,11 @@
     
     html += `<p>■ 下面我们先看一下${stocks[0].name}的毛利率。</p>`;
     html += renderGrossMarginTable(stocks[0]);
-    html += `<p>■ 如果过去${stocks[0].periods.length}年的毛利率一直大于40%，则说明该企业的产品竞争力较强。毛利率每年的波动幅度不超过10%，基本没有财务造假的风险。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderGrossMarginCompareTable(stocks);
     }
-    
-    html += `<p>■如果过去${stocks[0].periods.length}年的毛利率在逐渐提升，并且毛利率达到了40%以上，说明其产品竞争力在逐渐加强。</p>`;
-    html += `<p>■ 如果过去${stocks[0].periods.length}年的毛利率一直大于40%且保持稳定，说明其产品的竞争力比较强。</p>`;
-    html += `<p>■ 如果过去${stocks[0].periods.length}年的毛利率波动幅度小于10%，财务造假的风险很小。</p>`;
     
     html += `<h4>〇 第12步，看期间费用率，了解公司的成本管控能力。</h4>`;
     html += `<p>■ 优秀公司的期间费用率与毛利率的比率一般小于40%。期间费用率与毛利率的比率大于60%的公司淘汰掉。</p>`;
@@ -2021,78 +2313,38 @@
     html += `<p>■ 下面我们看一下${stocks[0].name}的期间费用率与毛利率的比率。</p>`;
     html += renderPeriodCostTable(stocks[0]);
     
-    html += `<p>四费指销售费用、管理费用、研发费用、财务费用，也叫期间费用。</p>`;
-    html += `<p>四费重点看两个费用率，一个是期间费用率，一个是销售费用率。</p>`;
-    html += `<p>■ 期间费用率是四费总和与营业收入的比率，保守起见，如果财务费用是负的，用销售费用、管理费用、研发费用三费总和计算期间费用率。</p>`;
-    html += `<p>■ 毛利率高，期间费用率低，经营成果才可能好。优秀公司的期间费用率与毛利率的比率一般小于40%。</p>`;
-    html += `<p>■ 期间费用率与毛利率的比率大于60%的公司，一般淘汰掉。</p>`;
-    html += `<p>■ 如果过去${stocks[0].periods.length}年期间费用率与毛利率的比率都小于40%，并且有下降的趋势，则表示成本管控能力很强，非常优秀。</p>`;
-    
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderPeriodCostCompareTable(stocks);
     }
     
-    html += `<p>■ 如果过去${stocks[0].periods.length}年期间费用率与毛利率的比率在持续下降，表示成本管控能力在增强。如果期间费用率与毛利率的比率大于40%，小于60%，则成本管控能力谈不上优秀也不算太差。</p>`;
-    
     html += `<h4>〇 第13步，看销售费用率，了解公司产品的销售难易度。</h4>`;
-    html += `<p>■ 销售费用率主要看两点，数值和变动趋势。一般来说，销售费用率小于15%的公司，其产品比较容易销售，销售风险相对较小。销售费用率大于30%的公司，其产品销售难度大，销售风险也大。销售费用率大于30%的公司淘汰掉。</p>`;
+    html += `<p>■ 销售费用率主要看两点，数值和变动趋势。一般来说，销售费用率小于15%的公司，其产品比较容易销售。销售费用率大于30%的公司淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的销售费用率。</p>`;
     html += renderSalesCostTable(stocks[0]);
-    html += `<p>■ 如果过去${stocks[0].periods.length}年的销售费用率都低于15%，说明企业的产品比较容易销售，销售风险较小。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderSalesCostCompareTable(stocks);
     }
     
-    html += `<p>■ 在四费当中，销售费用是直接和营业收入相关的费用。</p>`;
-    html += `<p>■ 一般来说先有销售费用，才有营业收入，用“销售费用”除以“营业收入”可以得到销售费用率。</p>`;
-    html += `<p>■ 销售费用率反映公司产品的销售难易度，销售费用率越低，产品就越畅销，产品本身的竞争力就越强，公司面临的销售风险就越小。</p>`;
-    html += `<p>■ 同样是每年100亿的营业收入，靠产品拉动带来的营业收入肯定比靠销售推动带来的营业收入风险要小很多。</p>`;
-    html += `<p>■ 一般来说，销售费用率小于15%的公司，其产品竞争力比较强，销售风险相对较小。</p>`;
-    html += `<p>■ 销售费用率越低，产品本身的竞争力就越大，公司的销售风险就越小。</p>`;
-    html += `<p>■ 销售费用率在15%-30%之间的公司，产品本身的竞争力一般，公司的销售风险较大。</p>`;
-    html += `<p>■ 销售费用率大于30%的公司，产品本身的竞争力较弱，公司的销售风险很大，公司的营业收入容易受到宏观经济情况等外部因素的影响而出现大幅波动。</p>`;
-    html += `<p>■ 在选公司时，一般把销售费用率大于30%的公司淘汰掉。</p>`;
-    html += `<p>■ 销售费用率也可以看作一个先行指标，一家公司由强转弱往往是从产品的滞销开始的。</p>`;
-    html += `<p>■ 产品滞销之后，公司往往会增加销售费用，销售费用率就会提高。</p>`;
-    html += `<p>■ 比如一家公司之前做100亿营业收入只需要花10亿的销售费用，从今年开始做100亿营业收入需要花15亿的销售费用，这说明公司产品的销售压力加大了，必须要增加销售费用才能获得和原来一样的营业收入。</p>`;
-    html += `<p>■ 导致这种情况的原因不管是公司自身的问题还是外部竞争的压力，这都是公司在走下坡路的征兆。</p>`;
-    html += `<p>■ 销售费用大幅增长而营业收入不增长甚至开始下降的公司我们一定要远离，这样的公司开始走下坡路了，以后可能会变的更差。</p>`;
-    
     html += `<h4>〇 第14步，看主营利润，了解公司主业的盈利能力及利润质量。</h4>`;
-    html += `<p>■ 主营利润主要看两点，主营利润率和主营利润与营业利润的比率。</p>`;
+    html += `<p>■ 主营利润主要看两点，主营利润率和主营利润与营业利润的比率。主营利润率小于15%或主营利润与营业利润的比率小于80%的公司淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的主营利润率及主营利润与营业利润的比率。</p>`;
     html += renderMainProfitTable(stocks[0]);
-    
-    html += `<p>■ 营业利润可以理解成公司的整体利润，它包括公司经营活动获得的利润和其他形式获得的收益。</p>`;
-    html += `<p>■ 计算公式为：营业利润=营业总收入－营业总成本+其他收益+投资收益+汇兑收益+净敞口套期收益+公允价值变动收益+信用减值损失+资产减值损失+资产处置收益</p>`;
-    html += `<p>主营利润=营业收入-营业成本-税金及附加-销售费用-管理费用-研发费用-财务费用</p>`;
-    html += `<p>简化一下就是：主营利润=毛利-税金及附加-四费</p>`;
-    html += `<p>■ 从公式可以看出，主营利润反映的是公司纯经营活动带来的利润。</p>`;
-    html += `<p>■ 主营利润与政府补贴、投资收益、公允价值变动收益、营业外收入等都无关。</p>`;
-    html += `<p>■ 主营利润对应的是一家公司的经营活动，主营利润是一家公司最核心的利润，它决定净利润的质量以及公司能否持续健康的发展。</p>`;
-    html += `<p>■ 用“主营利润”除以“营业利润”，可以计算出主营利润与营业利润的比率，这个比率应该至少大于80%，说明营业利润中的绝大部分利润是由主业创造的，这样的利润结构才是健康的，这样的利润才是可持续的，这个比率越高越好。</p>`;
-    html += `<p>■ 如果过去${stocks[0].periods.length}年的主营利润率都大于25%，并且一直在稳步提升之中，说明主业盈利能力在加强。如果过去${stocks[0].periods.length}年的主营利润与营业利润的比率都大于90%，说明企业的利润质量很高。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderMainProfitCompareTable(stocks);
     }
     
-    html += `<p>■ 如果企业在过去${stocks[0].periods.length}年中最近几年的主营利润率大于15%，并且呈上升趋势，说明主业盈利能力在逐步增强。如果主营利润与营业利润的比率一直大于80%，在90%左右，利润质量较高。</p>`;
-    html += `<p>在投资实践中，主营利润与营业利润的比率小于80%或主营利润率小于15%的公司，一般淘汰掉，这样的公司不具备持续的竞争力。</p>`;
-    
-    html += `<h4>〇 第15步，看净利润，了解公司的经营成果及含金量。净利润主要看净利润含金量。</h4>`;
+    html += `<h4>〇 第15步，看净利润，了解公司的经营成果及含金量。</h4>`;
     html += `<p>■ 过去${stocks[0].periods.length}年的平均净利润现金比率小于100%的公司，淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的净利润现金比率。</p>`;
     html += renderNetProfitCashTable(stocks[0]);
-    
-    html += `<p>■ ${stocks[0].name}过去${stocks[0].periods.length}年的净利润现金比率是否一直大于100%，过去${stocks[0].periods.length}年的平均净利润现金比率如果大于120%，净利润含金量非常高。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
@@ -2100,62 +2352,38 @@
     }
     
     html += `<h4>〇 第16步，看归母净利润，了解公司的整体盈利能力及持续性。</h4>`;
-    html += `<p>■ 归母净利润主要看两点，一是规模，二是增长率。</p>`;
-    html += `<p>■ 一般来说，归母净利润规模大的公司盈利能力更强。比如：归母净利润为20亿的公司盈利能力要强于10亿的公司。</p>`;
-    html += `<p>■ 归母净利润的增长率也很重要，增长率大于10%，说明公司的盈利能力不但强而且持续性较好。</p>`;
-    html += `<p>■ 归母净利润规模较大但增长率小于0的公司，很可能意味公司已经处于衰落之中了，盈利能力的可持续性较差。</p>`;
-    html += `<p>■ 在投资实践中，一般把归母净利润增长率小于10%的公司淘汰掉。</p>`;
-    html += `<p>■ 用“归母净利润”除以“归母所有者权益”可以得到净资产收益率，也叫ROE。</p>`;
-    html += `<p>■ 最优秀公司的ROE一般会持续大于20%，优秀公司的ROE也会持续大于15%。ROE小于15%的公司需要淘汰掉。另外归母净利润增长率持续小于10%的公司也要淘汰掉。</p>`;
+    html += `<p>■ 归母净利润主要看两点，一是规模，二是增长率。ROE小于15%或归母净利润增长率小于10%的公司淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的ROE和归母净利润增长率。</p>`;
     html += renderROETable(stocks[0]);
-    
-    html += `<p>■ 如果企业过去${stocks[0].periods.length}年的ROE持续维持在30%左右，远大于20%，公司的整体盈利能力非常强。如果归母净利润增长率都大于10%，盈利的持续性也比较强。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderROECompareTable(stocks);
     }
     
-    html += `<p>如果过去${stocks[0].periods.length}年的ROE有2年低于15%，有3年高于15%但低于20%，说明企业的整体盈利能力一般，如果最近3年的盈利能力在增强。归母净利润增长率大于10%，盈利的持续性比较强。</p>`;
-    html += `<p>如果过去${stocks[0].periods.length}年的ROE有4年低于15%，说明企业整体盈利能力一般，能给股东带来的长期回报率比较低。</p>`;
-    html += `<p>■ 一家公司能给股东带来的长期年化收益率基本上等于长期的ROE，${stocks.length}家公司中哪家公司更有投资价值还是很容易判断的。</p>`;
-    
-    html += `<h4>〇 第17步，看购买固定资产、无形资产和其他长期资产支付的现金，了解公司的增长潜力。</h4>`;
-    html += `<p>■ 购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率大于100%或持续小于3%的公司需要淘汰掉。这两种类型的公司前者风险较大，后者回报较低。</p>`;
+    html += `<h4>〇 第17步，看购建固定资产、无形资产和其他长期资产支付的现金，了解公司的增长潜力。</h4>`;
+    html += `<p>■ 购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率大于100%或持续小于3%的公司需要淘汰掉。</p>`;
     
     html += `<p>■ 下面我们看一下${stocks[0].name}的购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率。</p>`;
     html += renderFixedAssetInvestTable(stocks[0]);
-    
-    html += `<p>如果企业过去${stocks[0].periods.length}年购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率一直处于3%-40%之间，未来有较大的增长潜力并且风险较小。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderFixedAssetInvestCompareTable(stocks);
     }
     
-    html += `<p>■ 如果企业的购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率一直处于90%-160%之间，这表明企业在通过融资进行扩张。即使有增长潜力，但也存在一定风险。</p>`;
-    
     html += `<h4>〇 第18步，看分红率（也叫股利支付率），了解公司的现金分红情况。</h4>`;
     html += `<p>■ 分红率最好在30%-70%之间，比率小于30%不够厚道，大于70%难以持续。</p>`;
     
-    html += `<p>■ 下面我们看一下${stocks[0].name}的分红率，在年报的“第五节 重要事项”可以看到公司的分红率。</p>`;
+    html += `<p>■ 下面我们看一下${stocks[0].name}的分红率。</p>`;
     html += renderDividendTable(stocks[0]);
-    
-    html += `<p>■ 企业如果过去${stocks[0].periods.length}年的分红率一直在30%-70%之间，表明在分红方面还是很厚道的，分红的可持续性也很强。</p>`;
     
     if (stocks.length > 1) {
       html += `<p>■ 下面我们再进行一下同行对比。</p>`;
       html += renderDividendCompareTable(stocks);
     }
     
-    html += `<p>企业如果过去${stocks[0].periods.length}年的分红在70%-100%之间，表明在分红方面非常厚道，如果是出于成熟期的企业，分红的持续性还是很强的。但是如果是成长期的企业，可持续性就难说了，毕竟企业要成长，都拿来分红了，还怎么成长？</p>`;
-    
-    if (stocks.length > 1) {
-      html += `<p>■ 通过${stocks.length}家公司的分红情况，我们发现哪家最厚道？</p>`;
-    }
-
     html += `<p>■ 通过以上18步，我们就能比较全面的了解一家公司了。如果我们通过这18步去看A股5500多家上市公司，那么至少99%的公司会被淘汰掉。剩下不到1%的公司一般就是非常优秀的公司了，这就叫剩者为王。</p>`;
     html += `<p>以上关于企业分析的内容，仅作为教学案例，帮助大家掌握投资技能，不作为投资建议。</p>`;
     
@@ -2201,13 +2429,29 @@
       loading.style.display = 'none';
       resultContent.style.display = 'block';
       
-      window.scrollTo({ top: resultSection.offsetTop, behavior: 'smooth' });
+      showToast('数据加载成功');
+      
+      setTimeout(() => {
+        window.scrollTo({ top: resultSection.offsetTop, behavior: 'smooth' });
+      }, 300);
       
     } catch (e) {
       loading.style.display = 'none';
       resultContent.innerHTML = `<div class="error-msg">获取数据失败：${e.message}</div>`;
       resultContent.style.display = 'block';
     }
+  });
+
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 300) {
+      backToTop.classList.add('show');
+    } else {
+      backToTop.classList.remove('show');
+    }
+  });
+
+  backToTop.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 </script>
 </body>

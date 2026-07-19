@@ -234,8 +234,8 @@ def fetch_financial_data(code_list, years=5):
                 "name": sec_name,
                 "periods": display_periods,
                 "balance_sheet": balance_data,
-                "income_sheet": income_data,
-                "cashflow_sheet": cashflow_data,
+                "income_statement": income_data,
+                "cash_flow": cashflow_data,
                 "growth_data": growth_data
             })
         except Exception as e:
@@ -245,8 +245,8 @@ def fetch_financial_data(code_list, years=5):
                 "name": code,
                 "periods": [],
                 "balance_sheet": {},
-                "income_sheet": {},
-                "cashflow_sheet": {},
+                "income_statement": {},
+                "cash_flow": {},
                 "growth_data": {},
                 "error": str(e)
             })
