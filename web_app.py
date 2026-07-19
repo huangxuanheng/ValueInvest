@@ -2454,6 +2454,7 @@ MENU_GROUPS = [
             ("reinvest_backtest","个股复投回测",     "/chart/reinvest_backtest_raw"),
             ("undervalue_backtest","个股低估回测",   "/chart/undervalue_backtest_raw"),
             ("stock_dividend_yield", "个股历史股息率", "/chart/stock_dividend_yield_raw"),
+            ("finance_comparison",   "个股同行分析",    "/chart/finance_input"),
             ("user_settings",         "设置",             "/chart/settings_raw"),
         ],
     ),
@@ -2538,6 +2539,8 @@ def page_reinvest_backtest(): return _render_frame("reinvest_backtest")
 def page_undervalue_backtest(): return _render_frame("undervalue_backtest")
 @app.route("/chart/stock_dividend_yield")
 def page_stock_dividend_yield(): return _render_frame("stock_dividend_yield")
+@app.route("/chart/finance_comparison")
+def page_finance_comparison(): return _render_frame("finance_comparison")
 
 
 # ------- 2. 右侧内容页（raw，嵌入 iframe 的独立页面）--------
@@ -2561,9 +2564,36 @@ def stock_dividend_yield_raw():
     """个股历史股息率图表页：输入个股代码 → 绘制日度动态股息率（V6 双重约束 + 十字光标）"""
     return render_template("stock_history_dividend.html")
 
+@app.route("/chart/finance_input")
+def finance_input_raw():
+    """个股同行分析 - 股票输入页"""
+    return render_template("finance_input.html")
+
+
 # ============================================================
 # 3-bis. 用户认证 & 设置 页面路由 + API
 # ============================================================
+@app.route("/finance/compare")
+def finance_compare_page():
+    codes = request.args.get("codes", "")
+    return render_template("finance.html", codes=codes)
+
+@app.route("/api/financial_data", methods=["GET"])
+def api_financial_data():
+    codes = request.args.get("codes", "")
+    years = int(request.args.get("years", 5))
+    if not codes:
+        return jsonify({"error": "请输入股票代码"}), 400
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if len(code_list) == 0:
+        return jsonify({"error": "请输入股票代码"}), 400
+    
+    try:
+        result = _fetch_financial_data(code_list, years)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/login")
 def page_login():
     return render_template("login.html")
@@ -5827,7 +5857,265 @@ def start_scheduler():
     return sched
 
 
-# ============================================================
+def _parse_financial_value(val):
+    """解析财务数据字符串，转换为数字"""
+    if val is None or val == '' or pd.isna(val):
+        return None
+    val = str(val).strip()
+    if val == 'False' or val == 'true' or val == 'True':
+        return None
+    try:
+        if val.endswith('亿'):
+            return float(val.replace('亿', '')) * 1e8
+        elif val.endswith('万'):
+            return float(val.replace('万', '')) * 1e4
+        else:
+            return float(val)
+    except:
+        return None
+
+
+def _calc_growth_rate(data, periods):
+    """计算同比增长率"""
+    rates = {}
+    for i in range(len(periods)):
+        curr_period = periods[i]
+        if i < len(periods) - 1:
+            prev_period = periods[i + 1]
+            curr_val = data.get(curr_period)
+            prev_val = data.get(prev_period)
+            if curr_val is not None and prev_val is not None and prev_val != 0:
+                rates[curr_period] = (curr_val - prev_val) / prev_val * 100
+            else:
+                rates[curr_period] = None
+        else:
+            rates[curr_period] = None
+    return rates
+
+
+def _fetch_financial_data(code_list, years=5):
+    """
+    获取多只股票的完整财务报表数据（使用同花顺接口）
+    years: 需要获取的年度报告期数量（5年、8年、10年、15年），实际查询years+1年以计算增长率
+    """
+    import akshare as ak
+    
+    query_years = years + 1
+    
+    result = {
+        "stocks": [],
+        "error": None
+    }
+    
+    for code in code_list:
+        try:
+            sec_name, suffix = _ri_fetch_sec_name(code)
+            if not sec_name:
+                sec_name = code
+            
+            balance_data = {}
+            income_data = {}
+            cashflow_data = {}
+            growth_data = {}
+            annual_periods = []
+            
+            try:
+                df_debt = ak.stock_financial_debt_ths(symbol=code)
+                if df_debt is not None and len(df_debt) > 0:
+                    debt_periods = []
+                    for _, row in df_debt.iterrows():
+                        period = str(row['报告期'])
+                        if period.endswith('-12-31'):
+                            debt_periods.append(period)
+                    
+                    annual_periods = sorted(debt_periods, reverse=True)[:query_years]
+                    
+                    field_mapping = {
+                        '资产合计': '资产合计',
+                        '货币资金': '货币资金',
+                        '交易性金融资产': '交易性金融资产',
+                        '应收账款': '应收账款',
+                        '应收票据': '其中：应收票据',
+                        '应收款项融资': None,
+                        '合同资产': None,
+                        '预付款项': '预付款项',
+                        '其他应收款': '其他应收款',
+                        '存货': '存货',
+                        '固定资产合计': '固定资产合计',
+                        '在建工程合计': '在建工程合计',
+                        '工程物资': '工程物资',
+                        '无形资产': '无形资产',
+                        '商誉': '商誉',
+                        '其他非流动金融资产': '其他非流动金融资产',
+                        '长期股权投资': '长期股权投资',
+                        '投资性房地产': None,
+                        '短期借款': '短期借款',
+                        '应付账款': '应付账款',
+                        '应付票据': '其中：应付票据',
+                        '预收款项': '预收款项',
+                        '合同负债': '合同负债',
+                        '一年内到期的非流动负债': '一年内到期的非流动负债',
+                        '长期借款': '长期借款',
+                        '应付债券': None,
+                        '长期应付款': '其中：长期应付款',
+                        '负债合计': '负债合计',
+                        '所有者权益（或股东权益）合计': '所有者权益（或股东权益）合计',
+                        '归属于母公司所有者权益合计': '归属于母公司所有者权益合计',
+                        '流动资产合计': '流动资产合计',
+                        '非流动资产合计': '非流动资产合计',
+                        '流动负债合计': '流动负债合计',
+                        '非流动负债合计': '非流动负债合计'
+                    }
+                    
+                    for item, actual_field in field_mapping.items():
+                        values = {}
+                        for period in annual_periods:
+                            row = df_debt[df_debt['报告期'] == period]
+                            if len(row) > 0 and actual_field is not None:
+                                val = row.iloc[0].get(actual_field)
+                                values[period] = _parse_financial_value(val)
+                            else:
+                                values[period] = None
+                        balance_data[item] = values
+            except Exception as e:
+                print(f'  [finance] stock_financial_debt_ths({code}) 失败: {e}')
+            
+            try:
+                df_benefit = ak.stock_financial_benefit_ths(symbol=code)
+                if df_benefit is not None and len(df_benefit) > 0:
+                    if not annual_periods:
+                        benefit_periods = []
+                        for _, row in df_benefit.iterrows():
+                            period = str(row['报告期'])
+                            if period.endswith('-12-31'):
+                                benefit_periods.append(period)
+                        annual_periods = sorted(benefit_periods, reverse=True)[:query_years]
+                    
+                    income_field_mapping = {
+                        '营业总收入': '一、营业总收入',
+                        '营业收入': '其中：营业收入',
+                        '营业成本': '其中：营业成本',
+                        '营业税金及附加': '营业税金及附加',
+                        '销售费用': '销售费用',
+                        '管理费用': '管理费用',
+                        '研发费用': '研发费用',
+                        '财务费用': '财务费用',
+                        '投资收益': '投资收益',
+                        '营业利润': '三、营业利润',
+                        '利润总额': '四、利润总额',
+                        '净利润': '五、净利润',
+                        '归属于母公司所有者的净利润': '归属于母公司所有者的净利润',
+                        '扣除非经常性损益后的净利润': '扣除非经常性损益后的净利润',
+                        '基本每股收益': '（一）基本每股收益',
+                        '稀释每股收益': '（二）稀释每股收益',
+                        '资产减值损失': '资产减值损失',
+                        '信用减值损失': '信用减值损失',
+                        '公允价值变动收益': '加：公允价值变动收益',
+                        '资产处置收益': '资产处置收益',
+                        '其他收益': '其他收益',
+                        '营业外收入': '营业外收入',
+                        '营业外支出': '营业外支出',
+                        '所得税费用': '所得税费用'
+                    }
+                    
+                    for item, actual_field in income_field_mapping.items():
+                        values = {}
+                        for period in annual_periods:
+                            row = df_benefit[df_benefit['报告期'] == period]
+                            if len(row) > 0:
+                                val = row.iloc[0].get(actual_field)
+                                values[period] = _parse_financial_value(val)
+                            else:
+                                values[period] = None
+                        income_data[item] = values
+            except Exception as e:
+                print(f'  [finance] stock_financial_benefit_ths({code}) 失败: {e}')
+            
+            try:
+                df_cash = ak.stock_financial_cash_ths(symbol=code)
+                if df_cash is not None and len(df_cash) > 0:
+                    if not annual_periods:
+                        cash_periods = []
+                        for _, row in df_cash.iterrows():
+                            period = str(row['报告期'])
+                            if period.endswith('-12-31'):
+                                cash_periods.append(period)
+                        annual_periods = sorted(cash_periods, reverse=True)[:query_years]
+                    
+                    cashflow_field_mapping = {
+                        '经营活动产生的现金流量净额': '经营活动产生的现金流量净额',
+                        '投资活动产生的现金流量净额': '投资活动产生的现金流量净额',
+                        '筹资活动产生的现金流量净额': '筹资活动产生的现金流量净额',
+                        '现金及现金等价物净增加额': '五、现金及现金等价物净增加额',
+                        '销售商品、提供劳务收到的现金': '销售商品、提供劳务收到的现金',
+                        '购买商品、接受劳务支付的现金': '购买商品、接受劳务支付的现金',
+                        '支付给职工以及为职工支付的现金': '支付给职工以及为职工支付的现金',
+                        '支付的各项税费': '支付的各项税费',
+                        '收回投资收到的现金': '收回投资收到的现金',
+                        '取得投资收益收到的现金': '取得投资收益收到的现金',
+                        '购建固定资产、无形资产和其他长期资产支付的现金': '购建固定资产、无形资产和其他长期资产支付的现金',
+                        '投资支付的现金': '投资支付的现金',
+                        '吸收投资收到的现金': '吸收投资收到的现金',
+                        '取得借款收到的现金': '取得借款收到的现金',
+                        '偿还债务支付的现金': '偿还债务支付的现金',
+                        '分配股利、利润或偿付利息支付的现金': '分配股利、利润或偿付利息支付的现金',
+                        '期末现金及现金等价物余额': '六、期末现金及现金等价物余额'
+                    }
+                    
+                    for item, actual_field in cashflow_field_mapping.items():
+                        values = {}
+                        for period in annual_periods:
+                            row = df_cash[df_cash['报告期'] == period]
+                            if len(row) > 0:
+                                val = row.iloc[0].get(actual_field)
+                                values[period] = _parse_financial_value(val)
+                            else:
+                                values[period] = None
+                        cashflow_data[item] = values
+            except Exception as e:
+                print(f'  [finance] stock_financial_cash_ths({code}) 失败: {e}')
+            
+            if balance_data.get('资产合计'):
+                growth_data['资产合计增长率'] = _calc_growth_rate(balance_data['资产合计'], annual_periods)
+            if income_data.get('营业总收入'):
+                growth_data['营业总收入增长率'] = _calc_growth_rate(income_data['营业总收入'], annual_periods)
+            if income_data.get('净利润'):
+                growth_data['净利润增长率'] = _calc_growth_rate(income_data['净利润'], annual_periods)
+            if income_data.get('归属于母公司所有者的净利润'):
+                growth_data['归母净利润增长率'] = _calc_growth_rate(income_data['归属于母公司所有者的净利润'], annual_periods)
+            
+            dividend_data = {}
+            for period in annual_periods:
+                dividend = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
+                cashflow = cashflow_data.get('经营活动产生的现金流量净额', {}).get(period)
+                if cashflow is not None and cashflow != 0:
+                    dividend_data[period] = (dividend / cashflow * 100) if dividend else 0
+                else:
+                    dividend_data[period] = None
+            growth_data['分红率'] = dividend_data
+            
+            display_periods = annual_periods[:years]
+            
+            result["stocks"].append({
+                "code": code,
+                "name": sec_name,
+                "periods": display_periods,
+                "balance_sheet": balance_data,
+                "income_sheet": income_data,
+                "cashflow_sheet": cashflow_data,
+                "growth_data": growth_data
+            })
+            
+        except Exception as e:
+            result["stocks"].append({
+                "code": code,
+                "name": code,
+                "error": str(e)
+            })
+    
+    return result
+
+
 # 6. 主入口
 # ============================================================
 def main():
