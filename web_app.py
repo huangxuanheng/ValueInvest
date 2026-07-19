@@ -3457,12 +3457,11 @@ def _fetch_usa_money_gold_data() -> dict:
     # ---------- Step 1b: 从 precious_metals 拿每日真实金价（1968+ 每日 LBMA 定盘价）----------
     gold_daily_df = pd.DataFrame(columns=['date','gold_price'])
     try:
-        db_path = os.path.join(DATA_DIR, 'finance_analysis.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute('SELECT date_k, gold_price FROM precious_metals WHERE gold_price IS NOT NULL ORDER BY date_k ASC')
-        rows = cur.fetchall()
-        conn.close()
+        db = SessionLocal()
+        rows = db.query(PreciousMetal.date_k, PreciousMetal.gold_price).filter(
+            PreciousMetal.gold_price.isnot(None)
+        ).order_by(PreciousMetal.date_k.asc()).all()
+        db.close()
         if rows:
             gold_daily_df = pd.DataFrame(rows, columns=['date','gold_price'])
             gold_daily_df['date'] = pd.to_datetime(gold_daily_df['date'])
