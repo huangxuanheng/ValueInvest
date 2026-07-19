@@ -169,7 +169,7 @@ def _ensure_mysql_database_exists():
 
 _ensure_mysql_database_exists()
 
-# -------- MySQL 连接验证：连不上则报错退出，确保使用统一数据库 --------
+# -------- MySQL 连接验证：连不上则警告但不退出，允许启动后使用部分功能 --------
 _MYSQL_FALLBACK_MSG = None
 try:
     with create_engine(DB_URL, echo=False, future=True,
@@ -177,17 +177,17 @@ try:
                        pool_pre_ping=False, poolclass=__import__("sqlalchemy.pool", fromlist=["NullPool"]).NullPool
                        ).connect() as _probe:
         _probe.execute(text("SELECT 1"))
+    print("[DB] MySQL 连接成功")
 except Exception as _conn_err:
     _MYSQL_FALLBACK_MSG = (
-        f"[FATAL] MySQL 连接失败："
+        f"[WARN] MySQL 连接失败："
         f"{type(_conn_err).__name__}: {_conn_err}"
     )
     print("\n" + "!" * 72)
     print(_MYSQL_FALLBACK_MSG)
     print("  原因常见：MySQL 账号/密码不对、服务器 3306 端口未开放、IP 白名单未加当前出口 IP。")
-    print("  请检查 MySQL 连接配置后重启进程！")
+    print("  部分功能（如财务分析）可能无法正常使用，但服务仍会启动。")
     print("!" * 72 + "\n")
-    raise RuntimeError(f"MySQL 连接失败：{_conn_err}")
 
 engine = create_engine(DB_URL, echo=False, future=True,
                        connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})

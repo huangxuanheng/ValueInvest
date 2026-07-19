@@ -1,5 +1,4 @@
 __pycache__
-_*.py
 _*.html
 flask*.txt
 venv
