@@ -6077,11 +6077,21 @@ def _fetch_financial_data(code_list, years=5):
             if balance_data.get('资产合计'):
                 growth_data['资产合计增长率'] = _calc_growth_rate(balance_data['资产合计'], annual_periods)
             if income_data.get('营业总收入'):
-                growth_data['营业总收入增长率'] = _calc_growth_rate(income_data['营业总收入'], annual_periods)
+                growth_data['营业收入增长率'] = _calc_growth_rate(income_data['营业总收入'], annual_periods)
             if income_data.get('净利润'):
                 growth_data['净利润增长率'] = _calc_growth_rate(income_data['净利润'], annual_periods)
             if income_data.get('归属于母公司所有者的净利润'):
                 growth_data['归母净利润增长率'] = _calc_growth_rate(income_data['归属于母公司所有者的净利润'], annual_periods)
+            
+            roe_data = {}
+            for period in annual_periods:
+                net_profit = income_data.get('归属于母公司所有者的净利润', {}).get(period)
+                equity = balance_data.get('归属于母公司所有者权益合计', {}).get(period)
+                if equity is not None and equity != 0 and net_profit is not None:
+                    roe_data[period] = (net_profit / equity * 100)
+                else:
+                    roe_data[period] = None
+            growth_data['ROE'] = roe_data
             
             dividend_data = {}
             for period in annual_periods:
