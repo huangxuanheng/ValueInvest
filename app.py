@@ -28,6 +28,7 @@ except ImportError:
     print("[WARN] 无法导入 glod.routes.finance")
 
 from web_app import app as web_app_instance
+from web_app import start_scheduler
 
 if auth_bp:
     web_app_instance.register_blueprint(auth_bp)
@@ -37,4 +38,17 @@ if finance_bp:
 app = web_app_instance
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    sched = start_scheduler()
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "5000"))
+    try:
+        app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+    except KeyboardInterrupt:
+        print("[主程序] 收到终止信号")
+    finally:
+        if sched:
+            try:
+                sched.shutdown(wait=False)
+                print("[调度] APScheduler 已停止")
+            except Exception:
+                pass
