@@ -50,10 +50,21 @@
       overflow-x: hidden;
     }
 
-    .container {
+    .app-container {
       min-height: 100vh;
       background: var(--bg-color);
+    }
+
+    .main-content {
       padding-bottom: calc(var(--safe-bottom) + 60px);
+    }
+
+    .input-section-wrapper {
+      width: 100%;
+    }
+
+    .result-section-wrapper {
+      width: 100%;
     }
 
     .header {
@@ -78,11 +89,79 @@
     }
 
     .input-section {
-      padding: 16px;
+      padding: 0;
       background: var(--card-bg);
       margin-bottom: 8px;
       border-radius: 0 0 16px 16px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      overflow: hidden;
+    }
+
+    .input-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(193, 0, 0, 0.03);
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+    }
+
+    .input-header .input-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+
+    .collapse-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .collapse-btn:hover {
+      background: rgba(193, 0, 0, 0.08);
+      color: var(--primary-color);
+    }
+
+    .collapse-btn:active {
+      transform: scale(0.9);
+    }
+
+    .collapse-icon {
+      transition: transform 0.3s;
+    }
+
+    .input-body {
+      padding: 16px;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+      max-height: 2000px;
+      opacity: 1;
+      overflow: hidden;
+    }
+
+    .input-section.collapsed .input-body {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+    }
+
+    .input-section.collapsed .collapse-icon {
+      transform: rotate(180deg);
+    }
+
+    .input-section.collapsed .collapse-btn {
+      color: var(--primary-color);
     }
 
     .input-group {
@@ -628,7 +707,7 @@
         font-size: 15px;
       }
 
-      .container {
+      .app-container {
         max-width: 800px;
         margin: 0 auto;
         box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
@@ -708,70 +787,364 @@
     }
 
     @media (min-width: 1024px) {
-      .container {
-        max-width: 900px;
+      html {
+        font-size: 16px;
+      }
+
+      body {
+        -webkit-overflow-scrolling: auto;
+      }
+
+      .app-container {
+        max-width: 100%;
+        margin: 0;
+        box-shadow: none;
+        background: var(--bg-color);
+      }
+
+      .header {
+        position: static;
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+        padding: 16px 24px;
+        min-height: auto;
+        box-shadow: 0 2px 12px rgba(193, 0, 0, 0.3);
+      }
+
+      .header h1 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 1px;
+      }
+
+      .main-content {
+        display: flex;
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 24px;
+        padding-bottom: 60px;
+        gap: 24px;
+        transition: max-width 0.3s ease;
+      }
+
+      .main-content.collapsed-input {
+        max-width: 100%;
+      }
+
+      .input-section-wrapper {
+        width: 380px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+        height: fit-content;
+        max-height: calc(100vh - 140px);
+        overflow-y: auto;
+        transition: width 0.3s ease;
+      }
+
+      .input-section-wrapper.collapsed {
+        width: 48px;
+        flex-shrink: 0;
+      }
+
+      .input-section-wrapper.collapsed .input-body {
+        display: none;
+      }
+
+      .input-section-wrapper.collapsed .input-header {
+        padding: 14px 0;
+        justify-content: center;
+        border-bottom: none;
+      }
+
+      .input-section-wrapper.collapsed .input-header .input-title {
+        display: none;
+      }
+
+      .input-section-wrapper::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .input-section-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .input-section-wrapper::-webkit-scrollbar-thumb {
+        background: #ddd;
+        border-radius: 3px;
+      }
+
+      .result-section-wrapper {
+        flex: 1;
+        min-width: 0;
       }
 
       .input-section {
-        padding: 28px;
+        padding: 0;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        margin-bottom: 0;
+      }
+
+      .input-header {
+        padding: 14px 20px;
+      }
+
+      .input-header .input-title {
+        font-size: 15px;
+      }
+
+      .input-body {
+        padding: 20px;
+      }
+
+      .input-group {
+        margin-bottom: 12px;
+        padding: 8px;
+        border-radius: 8px;
+      }
+
+      .input-group .label {
+        width: 48px;
+        height: 42px;
+        font-size: 15px;
+        border-radius: 6px;
+      }
+
+      .input-group input {
+        height: 42px;
+        font-size: 16px;
+        letter-spacing: 1px;
+      }
+
+      .input-group .remove-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+      }
+
+      .add-btn {
+        margin-top: 10px;
+        height: 44px;
+        font-size: 14px;
+        border-radius: 8px;
+      }
+
+      .year-select-group {
+        margin-top: 14px;
+        margin-bottom: 14px;
+        padding-top: 14px;
+      }
+
+      .year-options {
+        gap: 8px;
+      }
+
+      .year-option {
+        padding: 8px 16px;
+        font-size: 13px;
+        min-width: 64px;
+        border-radius: 20px;
+      }
+
+      .submit-btn {
+        height: 50px;
+        font-size: 16px;
+        border-radius: 10px;
+        margin-top: 6px;
+      }
+
+      .tips {
+        margin-top: 12px;
+        padding: 12px;
+        font-size: 12px;
+        border-radius: 8px;
+      }
+
+      .error-msg {
+        margin-top: 8px;
+        padding: 10px 12px;
+        font-size: 12px;
+        border-radius: 8px;
+      }
+
+      .result-section {
+        display: block;
+      }
+
+      .result-section.show {
+        display: block;
       }
 
       .result-content {
-        padding: 28px;
+        padding: 24px;
+        padding-bottom: 60px;
+        background: var(--card-bg);
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+
+      .result-content h2 {
+        font-size: 22px;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+      }
+
+      .result-content h3 {
+        font-size: 19px;
+        margin-top: 28px;
+        margin-bottom: 12px;
+        padding-left: 14px;
+      }
+
+      .result-content h4 {
+        font-size: 17px;
+        margin-top: 24px;
+        margin-bottom: 12px;
+      }
+
+      .result-content p {
+        font-size: 14px;
+        line-height: 1.8;
+        margin-bottom: 10px;
+      }
+
+      .table-wrapper {
+        margin-bottom: 16px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        overflow-x: auto;
+      }
+
+      table {
+        font-size: 13px;
+        min-width: 600px;
+      }
+
+      table th,
+      table td {
+        padding: 10px 12px;
+      }
+
+      table th:first-child,
+      table td:first-child {
+        min-width: 120px;
+        padding-left: 14px;
+      }
+
+      .value-num,
+      .value-pct {
+        font-size: 13px;
+      }
+
+      .stock-card {
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+      }
+
+      .stock-card .stock-name {
+        font-size: 16px;
+        margin-bottom: 12px;
+      }
+
+      .scroll-hint {
+        display: none;
+      }
+
+      .loading {
+        padding: 100px 20px;
+      }
+
+      .loading .spinner {
+        width: 60px;
+        height: 60px;
+        border-width: 5px;
+      }
+
+      .loading p {
+        font-size: 16px;
+      }
+
+      .back-to-top {
+        bottom: 30px;
+        right: 30px;
+        width: 52px;
+        height: 52px;
+        font-size: 24px;
+      }
+
+      .toast {
+        padding: 16px 32px;
+        font-size: 15px;
+        border-radius: 14px;
       }
     }
   </style>
 </head>
 
 <body>
-  <div class="container">
+  <div class="app-container">
     <div class="header">
       <h1>个股同行分析</h1>
     </div>
 
-    <div class="input-section">
-      <div id="stock-inputs">
-        <div class="input-group">
-          <span class="label">A</span>
-          <input type="text" id="stock-A" placeholder="请输入股票代码" maxlength="6" />
-          <button class="remove-btn" style="display:none;">×</button>
+    <div class="main-content">
+      <div class="input-section-wrapper">
+        <div class="input-section">
+          <div class="input-header">
+            <span class="input-title">股票代码</span>
+            <button class="collapse-btn" id="collapse-btn" title="收起输入区域">
+              <span class="collapse-icon">∧</span>
+            </button>
+          </div>
+          <div class="input-body" id="input-body">
+            <div id="stock-inputs">
+            <div class="input-group">
+              <span class="label">A</span>
+              <input type="text" id="stock-A" placeholder="请输入股票代码" maxlength="6" />
+              <button class="remove-btn" style="display:none;">×</button>
+            </div>
+          </div>
+
+          <button class="add-btn" id="add-btn">
+            <span class="icon">+</span> 添加股票
+          </button>
+
+          <div class="year-select-group">
+            <span class="label">选择连续年限：</span>
+            <div class="year-options">
+              <span class="year-option active" data-value="5">5年</span>
+              <span class="year-option" data-value="8">8年</span>
+              <span class="year-option" data-value="10">10年</span>
+              <span class="year-option" data-value="15">15年</span>
+            </div>
+          </div>
+
+          <button class="submit-btn" id="submit-btn">同行对比</button>
+
+          <div class="error-msg" id="error-msg"></div>
+
+          <div class="tips">
+            <strong>提示：</strong>
+            <ul>
+              <li>支持输入A股股票代码（6位数字），如 000538、600519、300750</li>
+              <li>至少输入1只股票，最多支持6只股票对比</li>
+              <li>选择年限后，将展示对应年限的年度财务数据</li>
+            </ul>
+          </div>
+          </div>
         </div>
       </div>
 
-      <button class="add-btn" id="add-btn">
-        <span class="icon">+</span> 添加股票
-      </button>
-
-      <div class="year-select-group">
-        <span class="label">选择连续年限：</span>
-        <div class="year-options">
-          <span class="year-option active" data-value="5">5年</span>
-          <span class="year-option" data-value="8">8年</span>
-          <span class="year-option" data-value="10">10年</span>
-          <span class="year-option" data-value="15">15年</span>
+      <div class="result-section-wrapper">
+        <div class="result-section" id="result-section">
+          <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>正在获取财务数据...</p>
+          </div>
+          <div id="result-content" class="result-content" style="display:none;"></div>
         </div>
       </div>
-
-      <button class="submit-btn" id="submit-btn">同行对比</button>
-
-      <div class="error-msg" id="error-msg"></div>
-
-      <div class="tips">
-        <strong>提示：</strong>
-        <ul>
-          <li>支持输入A股股票代码（6位数字），如 000538、600519、300750</li>
-          <li>至少输入1只股票，最多支持6只股票对比</li>
-          <li>选择年限后，将展示对应年限的年度财务数据</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="result-section" id="result-section">
-      <div id="loading" class="loading">
-        <div class="spinner"></div>
-        <p>正在获取财务数据...</p>
-      </div>
-      <div id="result-content" class="result-content" style="display:none;"></div>
     </div>
   </div>
 
@@ -792,7 +1165,24 @@
     const resultContent = document.getElementById('result-content');
     const backToTop = document.getElementById('back-to-top');
     const toast = document.getElementById('toast');
+    const collapseBtn = document.getElementById('collapse-btn');
+    const inputSection = document.querySelector('.input-section');
+    const inputSectionWrapper = document.querySelector('.input-section-wrapper');
+    const mainContent = document.querySelector('.main-content');
     let selectedYears = 5;
+
+    loading.style.display = 'none';
+
+    collapseBtn.addEventListener('click', () => {
+      inputSection.classList.toggle('collapsed');
+      const isCollapsed = inputSection.classList.contains('collapsed');
+      collapseBtn.title = isCollapsed ? '展开输入区域' : '收起输入区域';
+      
+      if (window.innerWidth >= 1024) {
+        inputSectionWrapper.classList.toggle('collapsed');
+        mainContent.classList.toggle('collapsed-input');
+      }
+    });
 
     function showToast(msg, duration = 2000) {
       toast.textContent = msg;
@@ -2519,9 +2909,11 @@
 
         showToast('数据加载成功');
 
-        setTimeout(() => {
-          window.scrollTo({ top: resultSection.offsetTop, behavior: 'smooth' });
-        }, 300);
+        if (window.innerWidth < 1024) {
+          setTimeout(() => {
+            window.scrollTo({ top: resultSection.offsetTop, behavior: 'smooth' });
+          }, 300);
+        }
 
       } catch (e) {
         loading.style.display = 'none';

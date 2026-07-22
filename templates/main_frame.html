@@ -107,6 +107,77 @@
     padding: 18px 0 24px;
     overflow-y: auto;
     flex-shrink: 0;
+    transition: width 0.3s ease;
+    position: relative;
+  }
+  .sidebar.collapsed {
+    width: 48px;
+  }
+  .sidebar .sidebar-toggle {
+    position: absolute;
+    top: 12px;
+    right: -12px;
+    width: 24px;
+    height: 40px;
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+    transition: all 0.2s;
+    z-index: 10;
+  }
+  .sidebar .sidebar-toggle:hover {
+    background: #f5f5f5;
+    right: -14px;
+  }
+  .sidebar .sidebar-toggle .toggle-icon {
+    font-size: 12px;
+    color: #666;
+    transition: transform 0.3s;
+  }
+  .sidebar.collapsed .sidebar-toggle {
+    right: auto;
+    left: -12px;
+    border-radius: 6px 0 0 6px;
+    border-right: none;
+    border-left: 1px solid #e5e5e5;
+  }
+  .sidebar.collapsed .sidebar-toggle:hover {
+    left: -14px;
+  }
+  .sidebar.collapsed .sidebar-toggle .toggle-icon {
+    transform: rotate(180deg);
+  }
+  .sidebar.collapsed .group-title span.arrow,
+  .sidebar.collapsed .group-title span:last-child,
+  .sidebar.collapsed .submenu li a span,
+  .sidebar.collapsed .submenu li a::before {
+    display: none;
+  }
+  .sidebar.collapsed .group-title {
+    padding: 8px 0;
+    text-align: center;
+    border-left: none;
+    background: none;
+  }
+  .sidebar.collapsed .submenu li a {
+    padding: 8px 0;
+    text-align: center;
+    border-left: none;
+  }
+  .sidebar.collapsed .submenu li a::before {
+    content: "";
+    margin-right: 0;
+  }
+  .sidebar.collapsed .submenu li a .menu-icon {
+    display: inline-block;
+    font-size: 16px;
+    color: #c10000;
   }
   .sidebar .menu-group { margin-bottom: 22px; }
   .sidebar .group-title {
@@ -256,6 +327,9 @@
 
   <!-- 左侧菜单：循环渲染 MENU_GROUPS（热门数据 / 贵金属 / 货币与黄金） -->
   <aside class="sidebar" id="sidebar">
+    <div class="sidebar-toggle" id="sidebar-toggle" title="收缩菜单">
+      <span class="toggle-icon">«</span>
+    </div>
     {% for gi, (gid, gname, items) in enumerate(MENU_GROUPS) %}
     <div class="menu-group">
       <div class="group-title {% if gid == 'precious' %}precious{% endif %}"
@@ -315,6 +389,28 @@
 
   function $(sel, root = document) { return root.querySelector(sel); }
   function $$(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+  // 0) 侧边栏收缩/展开
+  const sidebar = document.getElementById("sidebar");
+  const sidebarToggle = document.getElementById("sidebar-toggle");
+  const toggleIcon = sidebarToggle ? sidebarToggle.querySelector(".toggle-icon") : null;
+
+  function toggleSidebar() {
+    sidebar.classList.toggle("collapsed");
+    if (toggleIcon) {
+      toggleIcon.textContent = sidebar.classList.contains("collapsed") ? "»" : "«";
+    }
+    if (sidebarToggle) {
+      sidebarToggle.title = sidebar.classList.contains("collapsed") ? "展开菜单" : "收缩菜单";
+    }
+  }
+
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      toggleSidebar();
+    });
+  }
 
   // 1) 一级菜单折叠（多组独立）
   const groupTitles = $$(".sidebar .group-title");
