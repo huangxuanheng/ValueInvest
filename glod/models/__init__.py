@@ -57,6 +57,28 @@ class DividendIndex(Base):
     __table_args__ = ({"comment": "股息率与估值指数表"},)
 
 
+class BuffettValuation(Base):
+    __tablename__ = "buffett_valuations"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_code = Column(String(16), nullable=False, comment="股票代码 6 位")
+    stock_name = Column(String(64), nullable=True, comment="股票名称")
+    years = Column(Integer, nullable=False, comment="连续年限")
+    start_year = Column(String(8), nullable=True, comment="起始年份")
+    end_year = Column(String(8), nullable=True, comment="截止年份")
+    yearly_data = Column(Text, nullable=True, comment="年度数据JSON")
+    total_net_profit = Column(Float, nullable=True, comment="总净利润(亿)")
+    total_dividend = Column(Float, nullable=True, comment="总分红(亿)")
+    total_retained_earnings = Column(Float, nullable=True, comment="总留存收益(亿)")
+    start_market_cap = Column(Float, nullable=True, comment="起始市值(亿)")
+    current_market_cap = Column(Float, nullable=True, comment="当前市值(亿)")
+    market_cap_growth = Column(Float, nullable=True, comment="市值增长(亿)")
+    retained_growth_rate = Column(Float, nullable=True, comment="留存增长率(%)")
+    created_at = Column(Date, nullable=True, comment="创建日期")
+    updated_at = Column(Date, nullable=True, comment="更新日期")
+
+    __table_args__ = ({"comment": "巴菲特估值数据表"},)
+
+
 try:
     from urllib.parse import quote_plus as _url_quote
 except Exception:

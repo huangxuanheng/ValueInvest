@@ -549,6 +549,7 @@
       font-family: "SF Mono", "Menlo", "Consolas", "Monaco", monospace;
       font-weight: 500;
       font-size: 12px;
+      color: var(--danger-color);
     }
 
     .positive {
@@ -1099,39 +1100,39 @@
           </div>
           <div class="input-body" id="input-body">
             <div id="stock-inputs">
-            <div class="input-group">
-              <span class="label">A</span>
-              <input type="text" id="stock-A" placeholder="请输入股票代码" maxlength="6" />
-              <button class="remove-btn" style="display:none;">×</button>
+              <div class="input-group">
+                <span class="label">A</span>
+                <input type="text" id="stock-A" placeholder="请输入股票代码" maxlength="6" />
+                <button class="remove-btn" style="display:none;">×</button>
+              </div>
             </div>
-          </div>
 
-          <button class="add-btn" id="add-btn">
-            <span class="icon">+</span> 添加股票
-          </button>
+            <button class="add-btn" id="add-btn">
+              <span class="icon">+</span> 添加股票
+            </button>
 
-          <div class="year-select-group">
-            <span class="label">选择连续年限：</span>
-            <div class="year-options">
-              <span class="year-option active" data-value="5">5年</span>
-              <span class="year-option" data-value="8">8年</span>
-              <span class="year-option" data-value="10">10年</span>
-              <span class="year-option" data-value="15">15年</span>
+            <div class="year-select-group">
+              <span class="label">选择连续年限：</span>
+              <div class="year-options">
+                <span class="year-option active" data-value="5">5年</span>
+                <span class="year-option" data-value="8">8年</span>
+                <span class="year-option" data-value="10">10年</span>
+                <span class="year-option" data-value="15">15年</span>
+              </div>
             </div>
-          </div>
 
-          <button class="submit-btn" id="submit-btn">同行对比</button>
+            <button class="submit-btn" id="submit-btn">同行对比</button>
 
-          <div class="error-msg" id="error-msg"></div>
+            <div class="error-msg" id="error-msg"></div>
 
-          <div class="tips">
-            <strong>提示：</strong>
-            <ul>
-              <li>支持输入A股股票代码（6位数字），如 000538、600519、300750</li>
-              <li>至少输入1只股票，最多支持6只股票对比</li>
-              <li>选择年限后，将展示对应年限的年度财务数据</li>
-            </ul>
-          </div>
+            <div class="tips">
+              <strong>提示：</strong>
+              <ul>
+                <li>支持输入A股股票代码（6位数字），如 000538、600519、300750</li>
+                <li>至少输入1只股票，最多支持6只股票对比</li>
+                <li>选择年限后，将展示对应年限的年度财务数据</li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -1177,7 +1178,7 @@
       inputSection.classList.toggle('collapsed');
       const isCollapsed = inputSection.classList.contains('collapsed');
       collapseBtn.title = isCollapsed ? '展开输入区域' : '收起输入区域';
-      
+
       if (window.innerWidth >= 1024) {
         inputSectionWrapper.classList.toggle('collapsed');
         mainContent.classList.toggle('collapsed-input');
@@ -2552,9 +2553,9 @@
       });
       html += `</tr>`;
 
-      html += `<tr><td>经营活动产生的现金流量净额</td>`;
+      html += `<tr><td>归属于母公司净利润</td>`;
       stock.periods.forEach(p => {
-        const val = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p];
+        const val = stock.income_statement['归属于母公司所有者的净利润'] && stock.income_statement['归属于母公司所有者的净利润'][p];
         html += `<td class="value-num">${formatNumber(val)}</td>`;
       });
       html += `</tr>`;
@@ -2562,9 +2563,9 @@
       html += `<tr><td>分红率</td>`;
       stock.periods.forEach(p => {
         const dividend = stock.cash_flow['分配股利、利润或偿付利息支付的现金'] && stock.cash_flow['分配股利、利润或偿付利息支付的现金'][p] || 0;
-        const cf = stock.cash_flow['经营活动产生的现金流量净额'] && stock.cash_flow['经营活动产生的现金流量净额'][p] || 0;
-        if (cf !== 0) {
-          const rate = (dividend / cf * 100);
+        const np = stock.income_statement['归属于母公司所有者的净利润'] && stock.income_statement['归属于母公司所有者的净利润'][p] || 0;
+        if (np !== 0) {
+          const rate = (dividend / np * 100);
           html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
         } else {
           html += `<td class="value-pct">-</td>`;
@@ -2601,18 +2602,17 @@
       html += renderStockTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderCompareTable(stocks);
       }
 
       html += `<h4>〇 第2步，看资产负债率，了解公司的负债水平及偿债风险。</h4>`;
       html += `<p>资产负债率主要看两点，一是数值，二是变动趋势。资产负债率大于60%的公司淘汰掉。</p>`;
-
+      html += `<p>资产负债率等于70%为警戒线，如果一家公司的资产负债率大于70%，这家公司发生债务危机的可能性就会变大。</p>`;
+      html += `<p>在投资实践中一般会把资产负债率大于60%的公司淘汰掉。资产负债率小于40%的公司，基本没有偿债风险。资产负债率大于40%小于60%的公司，偿债风险比较小，但在特殊情况下依然可能发生偿债危机</p>`;
       html += `<p>下面我们看一下${stocks[0].name}的资产负债率。</p>`;
       html += renderDebtTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderDebtCompareTable(stocks);
       }
 
@@ -2631,7 +2631,6 @@
       html += `<p>这两个科目的金额之和占总资产的比率大于25%的公司要比小于10%的公司财务造假的概率小很多。</p>`;
       html += `<p>在选择公司时，我们一般把（货币资金+交易性金融资产）/总资产*100%<25%的公司淘汰掉。</p>`;
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderCashDebtCompareTable(stocks);
       }
 
@@ -2652,7 +2651,6 @@
       html += `<p>“应付预收”减“应收预付”差额主要看两点，一是数值，二是变动趋势。“应付预收”减“应收预付”差额小于0的公司淘汰掉。</p>`;
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderCompeteCompareTable(stocks);
       }
 
@@ -2674,7 +2672,6 @@
       html += `<p区别是应收账款随着合同到期有无条件收款权，而合同资产是有条件收款权。</p>`;
       html += `<p也就是说合同资产的风险比应收账款更大些，所以合同资产也属于劣质资产。</p>`;
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderReceivableCompareTable(stocks);
       }
 
@@ -2700,7 +2697,6 @@
       html += `<p>由于固定资产是财务造假的首选科目之一，那么在建工程自然也是。</p>`;
       html += `<p>在建工程占总资产的比率一般不超过5%，超过5%的公司同学们要小心，要重点分析其财务造假的可能性。</p>`;
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderFixedAssetCompareTable(stocks);
       }
 
@@ -2714,29 +2710,35 @@
       html += renderInvestmentTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderInvestmentCompareTable(stocks);
       }
 
       html += `<h4>〇 第8步，看存货，了解公司产品的销售情况。</h4>`;
+      html += `<p>易爆雷资产主要包括应收账款、存货、长期股权投资、固定资产、商誉，这五个科目是最容易埋雷的地方，后期爆雷的时候会导致利润大幅减少甚至大幅亏损。由于我们在前七掌中已经看过了应收账款、固定资产、长期股权投资科目，排除了这三个科目爆雷的风险。</p>`;
+      html += `<p>这里重点看一下存货和商誉。</p>`;
+      html += `<p>对于“应付预收”减“应收预付”差额大于0并且应收账款占总资产比率小于1%的公司来说，存货基本没有爆雷的风险。</p>`;
+      html += `<p>对于应收账款占总资产的比率大于5%并且存货占总资产的比率大于15%的公司，爆雷的风险比较大，需要淘汰掉</p>`;
       html += `<p>存货主要看两点，一是规模，二是占比。存货占总资产的比率大于20%的公司淘汰掉。</p>`;
 
       html += `<p>下面我们看一下${stocks[0].name}的存货占总资产的比率。</p>`;
       html += renderInventoryTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderInventoryCompareTable(stocks);
       }
 
       html += `<h4>〇 第9步，看商誉，了解公司并购带来的风险。</h4>`;
+      html += `<p>商誉是公司对外收购所花的超出被收购公司净资产的那部分钱。</p>`;
+      html += `<p>收购来的公司企业文化不同，甚至行业也不同，很难经营成功，所以商誉是最容易爆雷的科目之一。</p>`;
+      html += `<p>在所有爆雷科目中商誉一直都是那个最耀眼的明星，堪称爆雷科目中的雷神。</p>`;
+      html += `<p>在A股的业绩爆雷案例中，10个爆雷的有5个来自商誉，1个来自应收账款，1个来自存货，1个来自长期股权投资，1个来自固定资产，还有1个来自其他所有可能爆雷的资产科目。</p>`;
+      html += `<p>可见商誉在爆雷界的地位如此巩固，未来也很难被超越</p>`;
       html += `<p>商誉主要看两点，一是规模，二是占比。商誉占总资产的比率大于10%的公司淘汰掉。</p>`;
 
       html += `<p>下面我们看一下${stocks[0].name}的商誉占总资产的比率。</p>`;
       html += renderGoodwillTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderGoodwillCompareTable(stocks);
       }
 
@@ -2749,7 +2751,6 @@
       html += renderRevenueTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderRevenueCompareTable(stocks);
       }
 
@@ -2767,7 +2768,6 @@
       html += `<p>毛利率波动幅度太大的公司要么是公司经营的风险大，要么是公司财务造假的风险大。</p>`;
       html += `<p>在投资实践中，毛利率波幅大于20%的公司一般淘汰掉。</p>`;
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderGrossMarginCompareTable(stocks);
       }
 
@@ -2778,20 +2778,37 @@
       html += renderPeriodCostTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderPeriodCostCompareTable(stocks);
       }
+      html += `<p>四费指销售费用、管理费用、研发费用、财务费用，也叫期间费用。</p>`;
+      html += `<p>四费重点看两个费用率，一个是期间费用率，一个是销售费用率。</p>`;
+      html += `<p>期间费用率是四费总和与营业收入的比率，保守起见，如果财务费用是负的，用销售费用、管理费用、研发费用三费总和计算期间费用率。</p>`;
+      html += `<p>毛利率高，期间费用率低，经营成果才可能好。优秀公司的期间费用率与毛利率的比率一般小于40%。</p>`;
+      html += `<p>期间费用率与毛利率的比率大于60%的公司，一般淘汰掉</p>`;
 
       html += `<h4>〇 第13步，看销售费用率，了解公司产品的销售难易度。</h4>`;
+      html += `<p>在四费当中，销售费用是直接和营业收入相关的费用。</p>`;
+      html += `<p>一般来说先有销售费用，才有营业收入，用“销售费用”除以“营业收入”可以得到销售费用率。</p>`;
+      html += `<p>销售费用率反映公司产品的销售难易度，销售费用率越低，产品就越畅销，产品本身的竞争力就越强，公司面临的销售风险就越小。</p>`;
+      html += `<p>同样是每年100亿的营业收入，靠产品拉动带来的营业收入肯定比靠销售推动带来的营业收入风险要小很多。</p>`;
+      html += `<p>一般来说，销售费用率小于15%的公司，其产品竞争力比较强，销售风险相对较小。</p>`;
+      html += `<p>销售费用率越低，产品本身的竞争力就越大，公司的销售风险就越小。</p>`;
+      html += `<p>销售费用率在15%-30%之间的公司，产品本身的竞争力一般，公司的销售风险较大。</p>`;
+      html += `<p>销售费用率大于30%的公司，产品本身的竞争力较弱，公司的销售风险很大，公司的营业收入容易受到宏观经济情况等外部因素的影响而出现大幅波动。</p>`;
+      html += `<p>在选公司时，一般把销售费用率大于30%的公司淘汰掉</p>`;
       html += `<p>销售费用率主要看两点，数值和变动趋势。一般来说，销售费用率小于15%的公司，其产品比较容易销售。销售费用率大于30%的公司淘汰掉。</p>`;
 
       html += `<p>下面我们看一下${stocks[0].name}的销售费用率。</p>`;
       html += renderSalesCostTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderSalesCostCompareTable(stocks);
       }
+      html += `<p>销售费用率也可以看作一个先行指标，一家公司由强转弱往往是从产品的滞销开始的。</p>`;
+      html += `<p>产品滞销之后，公司往往会增加销售费用，销售费用率就会提高。</p>`;
+      html += `<p>比如一家公司之前做100亿营业收入只需要花10亿的销售费用，从今年开始做100亿营业收入需要花15亿的销售费用，这说明公司产品的销售压力加大了，必须要增加销售费用才能获得和原来一样的营业收入。</p>`;
+      html += `<p>导致这种情况的原因不管是公司自身的问题还是外部竞争的压力，这都是公司在走下坡路的征兆。</p>`;
+      html += `<p>销售费用大幅增长而营业收入不增长甚至开始下降的公司我们一定要远离，这样的公司开始走下坡路了，以后可能会变的更差</p>`;
 
       html += `<h4>〇 第14步，看主营利润，了解公司主业的盈利能力及利润质量。</h4>`;
       html += `<p>主营利润主要看两点，主营利润率和主营利润与营业利润的比率。主营利润率小于15%或主营利润与营业利润的比率小于80%的公司淘汰掉。</p>`;
@@ -2814,40 +2831,65 @@
       html += `<p>主营利润对应的是一家公司的经营活动，主营利润是一家公司最核心的利润，它决定净利润的质量以及公司能否持续健康的发展。</p>`;
       html += `<p>用“主营利润”除以“营业利润”，可以计算出主营利润与营业利润的比率，这个比率应该至少大于80%，说明营业利润中的绝大部分利润是由主业创造的，这样的利润结构才是健康的，这样的利润才是可持续的，这个比率越高越好。</p>`;
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderMainProfitCompareTable(stocks);
       }
       html += `<p>在投资实践中，主营利润与营业利润的比率小于80%或主营利润率小于15%的公司，一般淘汰掉，这样的公司不具备持续的竞争力。</p>`;
       html += `<h4>〇 第15步，看净利润，了解公司的经营成果及含金量。</h4>`;
+      html += `<p>利润总额是公司在一段时期内获得的总成果。</p>`;
+      html += `<p>利润总额=营业利润+营业外收入-营业外支出</p>`;
+      html += `<p>净利润是公司在一段时期内获得的最终成果。</p>`;
+      html += `<p>净利润=利润总额-所得税费用</p>`;
+      html += `<p>利润总额减去企业所得税之后就得到了净利润，企业所得税税率一般为25%,也有的公司会享受税收优惠政策，实际税率低于25%。</p>`;
+      html += `<p>在净利润下面有两个科目，一个是“归属母公司股东的净利润”，一个是“少数股东损益”。</p>`;
+      html += `<p>“归属母公司股东的净利润“反映的是在海天味业及其子公司的合并利润中，归属于海天味业股东的那部分净利润。</p>`;
+      html += `<p>“少数股东损益“反映的是归属于子公司小股东们的那部分净利润。</p>`;
+      html += `<p>分析时看“归属母公司股东的净利润”就可以了。</p>`;
+      html += `<p>用“归属母公司股东的净利润”除以“总股本”，就得到了合并利润表中最后一项的每股收益。</p>`;
+      html += `<p>每股收益是很多投资者比较重视的一个指标，但是这个指标不能直接用，因为有些公司的净利润中含有大量水分，即使净利润中全部都是现金利润，利润的来源也可能有很大区别。</p>`;
+      html += `<p>以主营利润为主的利润远比以公允价值变动收益或营业外收入净额为主的利润质量高的多。在比较每股收益的时候不能只看数值，更要看净利润的质量。</p>`;
+      html += `<p>利润表中的利润总额和净利润并不太重要，虽然它们被经常使用。</p>`;
+      html += `<p>从投资的角度来看，主营利润的重要性大于营业利润，营业利润的重要性大于利润总额和净利润。</p>`;
+      html += `<p>虽然净利润相对不那么重要，但是它毕竟是企业的最终经营成果，很多关键的财务指标也和净利润相关，我们还是要重点看一下净利润。</p>`;
+      html += `<p>净利润主要看规模和含钱量，规模越大越好，含钱量越高越好。</p>`;
+      html += `<p>最优秀的公司净利润现金含量会持续大于120%，优秀的公司净利润现金含量会持续大于100%。</p>`;
+      html += `<p>在投资实践中，一般把过去5年净利润现金含量小于100%的公司淘汰掉。</p>`;
+      html += `<p>净利润现金含量的计算公式为：净利润现金含量=经营活动产生的现金流量净额/净利润*100%，经营活动产生的现金流量净额需要在现金流量表中查看</p>`;
       html += `<p>过去${stocks[0].periods.length}年的平均净利润现金比率小于100%的公司，淘汰掉。</p>`;
 
       html += `<p>下面我们看一下${stocks[0].name}的净利润现金比率。</p>`;
       html += renderNetProfitCashTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderNetProfitCashCompareTable(stocks);
       }
 
       html += `<h4>〇 第16步，看归母净利润，了解公司的整体盈利能力及持续性。</h4>`;
       html += `<p>归母净利润主要看两点，一是规模，二是增长率。ROE小于15%或归母净利润增长率小于10%的公司淘汰掉。</p>`;
-
+      html += `<p>一般来说，归母净利润规模大的公司盈利能力更强。比如：归母净利润为20亿的公司盈利能力要强于10亿的公司。</p>`;
+      html += `<p>归母净利润的增长率也很重要，增长率大于10%，说明公司的盈利能力不但强而且持续性较好。</p>`;
+      html += `<p>归母净利润规模较大但增长率小于0的公司，很可能意味公司已经处于衰落之中了，盈利能力的可持续性较差。</p>`;
+      html += `<p>在投资实践中，一般把归母净利润增长率小于10%的公司淘汰掉</p>`;
       html += `<p>下面我们看一下${stocks[0].name}的ROE和归母净利润增长率。</p>`;
       html += renderROETable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderROECompareTable(stocks);
       }
+      html += `<p>如果在所有的财务指标中只能选一个，大亨我会选“ROE”,也就是“净资产收益率”。</p>`;
+      html += `<p>计算公式：净资产收益率=净利润/所有者权益*100%</p>`;
+      html += `<p>净资产收益率是衡量公司自有资本获利能力最重要的指标。它表示股东投进公司的每一块钱一年下来赚了多少净利润。作为投资者，我们当然首选盈利能力强的公司。大亨一般首选ROE连续5年大于20%的公司</p>`;
 
       html += `<h4>〇 第17步，看购建固定资产、无形资产和其他长期资产支付的现金，了解公司的增长潜力。</h4>`;
+      html += `<p>购建固定资产、无形资产和其他长期资产支付的现金这个科目能反映公司未来的增长潜力。</p>`;
+      html += `<p>购建固定资产、无形资产和其他长期资产支付的现金主要看两点，一是与经营活动产生的现金流量净额的比率，二是能否带来销售商品、提供劳务收到的现金的增长。</p>`;
+      html += `<p>购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的合理比率为3%到60%，这样的公司增长潜力较大并且风险相对较小。</p>`;
+      html += `<p>在投资实践中，大亨一般会把 购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率大于100%或持续小于3%的公司淘汰掉。这两种类型的公司要么是太激进，要么是成长太慢。前者风险较大，后者回报较低</p>`;
       html += `<p>购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率大于100%或持续小于3%的公司需要淘汰掉。</p>`;
 
       html += `<p>下面我们看一下${stocks[0].name}的购建固定资产、无形资产和其他长期资产支付的现金与经营活动产生的现金流量净额的比率。</p>`;
       html += renderFixedAssetInvestTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderFixedAssetInvestCompareTable(stocks);
       }
 
@@ -2858,7 +2900,6 @@
       html += renderDividendTable(stocks[0]);
 
       if (stocks.length > 1) {
-        html += `<p>下面我们再进行一下同行对比。</p>`;
         html += renderDividendCompareTable(stocks);
       }
 

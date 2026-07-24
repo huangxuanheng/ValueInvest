@@ -2448,13 +2448,13 @@ MENU_GROUPS = [
             ("usa_money_gold", "美国基础货币与黄金储备", "/chart/usa_money_gold_raw"),
         ],
     ),
-    (
-        "tools", "工具", [
+    ("tools", "工具", [
             ("finance_calc",     "理财计算器",       "/chart/finance_calculator_raw"),
             ("reinvest_backtest","个股复投回测",     "/chart/reinvest_backtest_raw"),
             ("undervalue_backtest","个股低估回测",   "/chart/undervalue_backtest_raw"),
             ("stock_dividend_yield", "个股历史股息率", "/chart/stock_dividend_yield_raw"),
             ("finance_comparison",   "个股同行分析",    "/chart/finance_input"),
+            ("buffett_valuation",    "巴菲特估值",      "/chart/buffett_valuation_raw"),
             ("user_settings",         "设置",             "/chart/settings_raw"),
         ],
     ),
@@ -2569,6 +2569,11 @@ def finance_input_raw():
     """个股同行分析 - 股票输入页"""
     return render_template("finance_input.html")
 
+@app.route("/chart/buffett_valuation_raw")
+def buffett_valuation_raw():
+    """巴菲特估值 - 股票输入页"""
+    return render_template("buffett_valuation.html")
+
 
 # ============================================================
 # 3-bis. 用户认证 & 设置 页面路由 + API
@@ -2592,6 +2597,199 @@ def api_financial_data():
         result = _fetch_financial_data(code_list, years)
         return jsonify(result)
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/buffett_valuation", methods=["GET"])
+def api_buffett_valuation():
+    code = request.args.get("code", "").strip()
+    years = int(request.args.get("years", 5))
+    
+    print(f'[API] buffett_valuation request: code={code}, years={years}')
+    
+    if not code:
+        return jsonify({"error": "请输入股票代码"}), 400
+    if not code.isdigit() or len(code) != 6:
+        return jsonify({"error": "请输入6位数字的股票代码"}), 400
+    
+    try:
+        from glod.services.buffett_valuation_service import BuffettValuationService
+        from glod.models import BuffettValuation, SessionLocal
+        import json
+        
+        db = SessionLocal()
+        all_cached_records = db.query(BuffettValuation).filter(
+            BuffettValuation.stock_code == code
+        ).all()
+        
+        period_cache = {}
+        for record in all_cached_records:
+            if record.yearly_data:
+                try:
+                    yearly_data = json.loads(record.yearly_data)
+                    for item in yearly_data:
+                        period = item.get('period')
+                        if period:
+                            if period not in period_cache:
+                                period_cache[period] = {}
+                            for key in ['market_cap', 'non_fq_price', 'total_shares', 'depreciation_amortization', 'maintenance_capex', 'expansion_capex', 'shareholder_earnings']:
+                                if item.get(key) is not None and period_cache[period].get(key) is None:
+                                    period_cache[period][key] = item[key]
+                except:
+                    pass
+        
+        service = BuffettValuationService()
+        result = service.calculate(code, years)
+        
+        if period_cache:
+            for i, item in enumerate(result['yearly_data']):
+                period = item['period']
+                if period in period_cache:
+                    cached_period = period_cache[period]
+                    if cached_period.get('market_cap') is not None:
+                        item['market_cap'] = cached_period['market_cap']
+                        print(f'[API] 使用缓存市值: {period} = {cached_period["market_cap"]}')
+                    if cached_period.get('non_fq_price') is not None:
+                        item['non_fq_price'] = cached_period['non_fq_price']
+                    if cached_period.get('total_shares') is not None:
+                        item['total_shares'] = cached_period['total_shares']
+                    if cached_period.get('depreciation_amortization') is not None:
+                        item['depreciation_amortization'] = cached_period['depreciation_amortization']
+                    if cached_period.get('maintenance_capex') is not None:
+                        item['maintenance_capex'] = cached_period['maintenance_capex']
+                    if cached_period.get('expansion_capex') is not None:
+                        item['expansion_capex'] = cached_period['expansion_capex']
+                    if cached_period.get('shareholder_earnings') is not None:
+                        item['shareholder_earnings'] = cached_period['shareholder_earnings']
+        
+        print(f'[API] buffett_valuation response: total_net_profit={result["total_net_profit"]}, total_retained_earnings={result["total_retained_earnings"]}, start_market_cap={result["start_market_cap"]}')
+        response = jsonify(result)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        print(f'[API] buffett_valuation error: {e}')
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/buffett_valuation/cached", methods=["GET"])
+def api_buffett_valuation_cached():
+    code = request.args.get("code", "").strip()
+    years = int(request.args.get("years", 5))
+    
+    print(f'[API] buffett_valuation_cached request: code={code}, years={years}')
+    
+    if not code:
+        return jsonify({"error": "请输入股票代码"}), 400
+    if not code.isdigit() or len(code) != 6:
+        return jsonify({"error": "请输入6位数字的股票代码"}), 400
+    
+    try:
+        from glod.models import BuffettValuation, SessionLocal
+        import json
+        
+        db = SessionLocal()
+        all_cached_records = db.query(BuffettValuation).filter(
+            BuffettValuation.stock_code == code
+        ).all()
+        
+        if not all_cached_records:
+            print(f'[API] buffett_valuation_cached not found: {code}')
+            return jsonify({"from_cache": False})
+        
+        period_cache = {}
+        for record in all_cached_records:
+            if record.yearly_data:
+                try:
+                    yearly_data = json.loads(record.yearly_data)
+                    for item in yearly_data:
+                        period = item.get('period')
+                        if period:
+                            if period not in period_cache:
+                                period_cache[period] = {}
+                            for key in ['market_cap', 'non_fq_price', 'total_shares', 'depreciation_amortization', 'maintenance_capex', 'expansion_capex', 'shareholder_earnings']:
+                                if item.get(key) is not None and period_cache[period].get(key) is None:
+                                    period_cache[period][key] = item[key]
+                except:
+                    pass
+        
+        result = {
+            "stock_code": code,
+            "stock_name": all_cached_records[0].stock_name if all_cached_records else code,
+            "years": years,
+            "yearly_data": list(period_cache.values()),
+            "from_cache": True
+        }
+        
+        print(f'[API] buffett_valuation_cached found: {code}, merged {len(period_cache)} periods')
+        return jsonify(result)
+    except Exception as e:
+        print(f'[API] buffett_valuation_cached error: {e}')
+        return jsonify({"from_cache": False})
+
+
+@app.route("/api/buffett_valuation/save", methods=["POST"])
+def api_buffett_valuation_save():
+    try:
+        data = request.get_json()
+        print(f'[API] buffett_valuation_save request received')
+        
+        if not data or 'stock_code' not in data or 'years' not in data:
+            return jsonify({"error": "缺少必要参数"}), 400
+        
+        from glod.models import BuffettValuation, SessionLocal
+        from sqlalchemy import text
+        import json
+        from datetime import datetime
+        
+        db = SessionLocal()
+        
+        cached_data = db.query(BuffettValuation).filter(
+            BuffettValuation.stock_code == data['stock_code'],
+            BuffettValuation.years == data['years']
+        ).first()
+        
+        yearly_data_json = json.dumps(data.get('yearly_data', []), ensure_ascii=False)
+        
+        if cached_data:
+            cached_data.stock_name = data.get('stock_name')
+            cached_data.yearly_data = yearly_data_json
+            cached_data.total_net_profit = data.get('total_net_profit')
+            cached_data.total_dividend = data.get('total_dividend')
+            cached_data.total_retained_earnings = data.get('total_retained_earnings')
+            cached_data.start_market_cap = data.get('start_market_cap')
+            cached_data.current_market_cap = data.get('current_market_cap')
+            cached_data.market_cap_growth = data.get('market_cap_growth')
+            cached_data.retained_growth_rate = data.get('retained_growth_rate')
+            cached_data.start_year = data.get('start_year')
+            cached_data.end_year = data.get('end_year')
+            cached_data.updated_at = datetime.now().date()
+            print(f'[API] buffett_valuation_save updated: {data["stock_code"]}')
+        else:
+            new_record = BuffettValuation(
+                stock_code=data['stock_code'],
+                stock_name=data.get('stock_name'),
+                years=data['years'],
+                yearly_data=yearly_data_json,
+                total_net_profit=data.get('total_net_profit'),
+                total_dividend=data.get('total_dividend'),
+                total_retained_earnings=data.get('total_retained_earnings'),
+                start_market_cap=data.get('start_market_cap'),
+                current_market_cap=data.get('current_market_cap'),
+                market_cap_growth=data.get('market_cap_growth'),
+                retained_growth_rate=data.get('retained_growth_rate'),
+                start_year=data.get('start_year'),
+                end_year=data.get('end_year'),
+                created_at=datetime.now().date(),
+                updated_at=datetime.now().date()
+            )
+            db.add(new_record)
+            print(f'[API] buffett_valuation_save created: {data["stock_code"]}')
+        
+        db.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f'[API] buffett_valuation_save error: {e}')
         return jsonify({"error": str(e)}), 500
 
 @app.route("/login")
@@ -6123,8 +6321,6 @@ def _fetch_financial_data(code_list, years=5):
             })
     
     return result
-
-
 # 6. 主入口
 # ============================================================
 def main():

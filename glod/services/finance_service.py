@@ -192,7 +192,10 @@ def fetch_financial_data(code_list, years=5):
                         '取得借款收到的现金': '取得借款收到的现金',
                         '偿还债务支付的现金': '偿还债务支付的现金',
                         '分配股利、利润或偿付利息支付的现金': '分配股利、利润或偿付利息支付的现金',
-                        '期末现金及现金等价物余额': '六、期末现金及现金等价物余额'
+                        '期末现金及现金等价物余额': '六、期末现金及现金等价物余额',
+                        '固定资产折旧、油气资产折耗、生产性生物资产折旧': '固定资产折旧、油气资产折耗、生产性生物资产折旧',
+                        '无形资产摊销': '无形资产摊销',
+                        '长期待摊费用摊销': '长期待摊费用摊销'
                     }
                     
                     for item, actual_field in cashflow_field_mapping.items():
@@ -207,6 +210,32 @@ def fetch_financial_data(code_list, years=5):
                         cashflow_data[item] = values
             except Exception as e:
                 print(f'  [finance] stock_financial_cash_ths({code}) 失败: {e}')
+            
+            try:
+                df_sina_cash = ak.stock_financial_report_sina(symbol=code)
+                if df_sina_cash is not None and len(df_sina_cash) > 0:
+                    sina_cash_field_mapping = {
+                        '固定资产折旧、油气资产折耗、生产性生物资产折旧': ['固定资产折旧、油气资产折耗、生产性生物资产折旧', '固定资产折旧'],
+                        '无形资产摊销': ['无形资产摊销'],
+                        '长期待摊费用摊销': ['长期待摊费用摊销']
+                    }
+                    
+                    for item, field_list in sina_cash_field_mapping.items():
+                        if item not in cashflow_data or all(v is None for v in cashflow_data[item].values()):
+                            values = {}
+                            for period in annual_periods:
+                                val = None
+                                for field in field_list:
+                                    row = df_sina_cash[df_sina_cash['报告期'] == period]
+                                    if len(row) > 0:
+                                        val = row.iloc[0].get(field)
+                                        if val is not None and not pd.isna(val):
+                                            break
+                                values[period] = _parse_financial_value(val)
+                            cashflow_data[item] = values
+                print(f'  [finance] stock_financial_report_sina({code}) 补充现金流量表数据成功')
+            except Exception as e:
+                print(f'  [finance] stock_financial_report_sina({code}) 失败: {e}')
             
             if balance_data.get('资产合计'):
                 growth_data['资产合计增长率'] = _calc_growth_rate(balance_data['资产合计'], annual_periods)

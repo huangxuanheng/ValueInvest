@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>巴菲特估值 v2</title>
+<style>
+  :root {
+    --primary-color: #c10000;
+    --primary-light: #e50012;
+    --bg-color: #f5f5f5;
+    --card-bg: #fff;
+    --text-primary: #333;
+    --text-secondary: #666;
+    --border-color: #e5e5e5;
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-color);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body {
+    min-height: 100vh;
+    color: var(--text-primary);
+  }
+
+  .app-container {
+    min-height: 100vh;
+    background: var(--bg-color);
+  }
+
+  .header {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+    padding: calc(var(--safe-top) + 16px) 16px 16px;
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(193, 0, 0, 0.3);
+    border-radius: 0 0 16px 16px;
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .main-content {
+    padding: 16px;
+    padding-bottom: calc(var(--safe-bottom) + 60px);
+  }
+
+  .input-section {
+    padding: 0;
+    background: var(--card-bg);
+    margin-bottom: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+  }
+
+  .input-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(193, 0, 0, 0.03);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .input-header .input-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary-color);
+  }
+
+  .input-body {
+    padding: 16px;
+  }
+
+  .input-group {
+    display: flex;
+    align-items: center;
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 8px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s;
+  }
+
+  .input-group:focus-within {
+    border-color: var(--primary-color);
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(193, 0, 0, 0.1);
+  }
+
+  .input-group .label {
+    width: 42px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-color);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+
+  .input-group input {
+    flex: 1;
+    height: 38px;
+    border: none;
+    outline: none;
+    font-size: 16px;
+    background: transparent;
+    letter-spacing: 2px;
+    font-family: -apple-system, BlinkMacSystemFont, monospace;
+  }
+
+  .input-group input::placeholder {
+    color: #bbb;
+    letter-spacing: normal;
+  }
+
+  .year-select-group {
+    margin-bottom: 16px;
+  }
+
+  .year-select-group .label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .year-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .year-option {
+    padding: 10px 16px;
+    background: #f9f9f9;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    font-size: 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  .year-option:hover {
+    background: rgba(193, 0, 0, 0.05);
+    border-color: var(--primary-color);
+  }
+
+  .year-option.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+
+  .submit-btn {
+    width: 100%;
+    height: 48px;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(193, 0, 0, 0.3);
+    margin-top: 8px;
+  }
+
+  .submit-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(193, 0, 0, 0.4);
+  }
+
+  .submit-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(193, 0, 0, 0.3);
+  }
+
+  .submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .save-btn {
+    width: 100%;
+    padding: 12px;
+    background: #4CAF50;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 24px;
+    transition: all 0.2s;
+  }
+
+  .save-btn:hover {
+    background: #45a049;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+  }
+
+  .save-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  }
+
+  .editable-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 2px dashed #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    text-align: right;
+    background: #fff;
+    transition: border-color 0.2s;
+  }
+
+  .editable-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    border-style: solid;
+  }
+
+  .cache-badge {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 2px 8px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 4px;
+  }
+
+  .error-msg {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #fff5f5;
+    color: var(--primary-color);
+    font-size: 13px;
+    border-radius: 8px;
+    display: none;
+  }
+
+  .error-msg.show {
+    display: block;
+  }
+
+  .tips {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f0f7ff;
+    border: 1px solid #e0efff;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .tips strong {
+    color: #333;
+  }
+
+  .tips ul {
+    margin-top: 8px;
+    padding-left: 16px;
+    list-style-type: disc;
+  }
+
+  .tips li {
+    margin-bottom: 4px;
+  }
+
+  .result-section {
+    display: none;
+  }
+
+  .result-section.show {
+    display: block;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    display: none;
+  }
+
+  .loading.show {
+    display: block;
+  }
+
+  .loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .loading p {
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  .result-content {
+    padding: 16px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 16px;
+  }
+
+  .result-content h2 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--primary-color);
+  }
+
+  .result-content h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 20px;
+    margin-bottom: 12px;
+    padding-left: 10px;
+    border-left: 3px solid var(--primary-color);
+  }
+
+  .summary-card {
+    background: linear-gradient(135deg, rgba(193, 0, 0, 0.05) 0%, rgba(193, 0, 0, 0.02) 100%);
+    border: 1px solid rgba(193, 0, 0, 0.1);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .summary-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(193, 0, 0, 0.1);
+  }
+
+  .summary-item:last-child {
+    border-bottom: none;
+  }
+
+  .summary-item .label {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  .summary-item .value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .summary-item .value.highlight {
+    color: var(--primary-color);
+  }
+
+  .summary-item .value.good {
+    color: #2ecc71;
+  }
+
+  .summary-item .value.warning {
+    color: #f39c12;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  table {
+    width: 100%;
+    min-width: 700px;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  table th,
+  table td {
+    padding: 10px 8px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+  }
+
+  table th:first-child,
+  table td:first-child {
+    text-align: left;
+    font-weight: 500;
+    min-width: 100px;
+    position: sticky;
+    left: 0;
+    background: inherit;
+    z-index: 1;
+  }
+
+  table th {
+    background: #fafafa;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  table tr:last-child td {
+    border-bottom: none;
+  }
+
+  table tr:hover {
+    background: #f9f9f9;
+  }
+
+  .value-num {
+    font-family: -apple-system, BlinkMacSystemFont, monospace;
+    color: var(--text-primary);
+  }
+
+  .value-pct {
+    font-family: -apple-system, BlinkMacSystemFont, monospace;
+    color: var(--primary-color);
+  }
+
+  .stock-card {
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  }
+
+  .stock-card .stock-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    padding-left: 12px;
+    border-left: 4px solid var(--primary-color);
+  }
+
+  .back-to-top {
+    position: fixed;
+    bottom: calc(var(--safe-bottom) + 20px);
+    right: 16px;
+    width: 44px;
+    height: 44px;
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    font-size: 20px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(193, 0, 0, 0.4);
+    transition: all 0.2s;
+    z-index: 100;
+  }
+
+  .back-to-top.show {
+    display: flex;
+  }
+
+  .back-to-top:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(193, 0, 0, 0.5);
+  }
+
+  .toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+    z-index: 1000;
+    text-align: center;
+  }
+
+  .toast.show {
+    display: block;
+  }
+
+  @media (min-width: 768px) {
+    html {
+      font-size: 15px;
+    }
+
+    .app-container {
+      max-width: 800px;
+      margin: 0 auto;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .header {
+      border-radius: 0;
+    }
+
+    .input-section {
+      padding: 24px;
+      border-radius: 0 0 20px 20px;
+    }
+
+    .input-group {
+      margin-bottom: 14px;
+      padding: 10px;
+    }
+
+    .input-group .label {
+      width: 56px;
+      height: 46px;
+      font-size: 15px;
+    }
+
+    .input-group input {
+      height: 46px;
+      font-size: 17px;
+    }
+
+    .submit-btn {
+      height: 56px;
+      font-size: 18px;
+    }
+
+    .result-content {
+      padding: 24px;
+    }
+
+    .result-content h2 {
+      font-size: 20px;
+    }
+
+    .result-content h3 {
+      font-size: 18px;
+    }
+
+    table {
+      font-size: 14px;
+    }
+
+    table th,
+    table td {
+      padding: 12px 14px;
+    }
+
+    .stock-card {
+      padding: 20px;
+    }
+
+    .stock-card .stock-name {
+      font-size: 16px;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    html {
+      font-size: 16px;
+    }
+
+    body {
+      -webkit-overflow-scrolling: auto;
+    }
+
+    .app-container {
+      max-width: 100%;
+      margin: 0;
+      box-shadow: none;
+      background: var(--bg-color);
+    }
+
+    .header {
+      position: static;
+      background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+      padding: 16px 24px;
+      min-height: auto;
+      box-shadow: 0 2px 12px rgba(193, 0, 0, 0.3);
+      border-radius: 0;
+    }
+
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .main-content {
+      display: flex;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      padding-bottom: 60px;
+      gap: 24px;
+    }
+
+    .input-section-wrapper {
+      width: 380px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 24px;
+      height: fit-content;
+      max-height: calc(100vh - 140px);
+      overflow-y: auto;
+    }
+
+    .input-section-wrapper::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .input-section-wrapper::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .input-section-wrapper::-webkit-scrollbar-thumb {
+      background: #ddd;
+      border-radius: 3px;
+    }
+
+    .result-section-wrapper {
+      flex: 1;
+      min-width: 0;
+      overflow: visible;
+    }
+
+    .input-section {
+      padding: 0;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      margin-bottom: 0;
+    }
+
+    .input-header {
+      padding: 14px 20px;
+    }
+
+    .input-header .input-title {
+      font-size: 15px;
+    }
+
+    .input-body {
+      padding: 20px;
+    }
+
+    .input-group {
+      margin-bottom: 12px;
+      padding: 8px;
+      border-radius: 8px;
+    }
+
+    .input-group .label {
+      width: 48px;
+      height: 42px;
+      font-size: 15px;
+      border-radius: 6px;
+    }
+
+    .input-group input {
+      height: 42px;
+      font-size: 16px;
+      letter-spacing: 1px;
+    }
+
+    .year-select-group {
+      margin-top: 14px;
+      margin-bottom: 14px;
+    }
+
+    .year-options {
+      gap: 8px;
+    }
+
+    .year-option {
+      padding: 8px 16px;
+      font-size: 13px;
+      min-width: 64px;
+      border-radius: 20px;
+    }
+
+    .submit-btn {
+      height: 50px;
+      font-size: 16px;
+      border-radius: 10px;
+      margin-top: 6px;
+    }
+
+    .tips {
+      margin-top: 12px;
+      padding: 12px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    .error-msg {
+      margin-top: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    .result-section {
+      display: block;
+    }
+
+    .result-section.show {
+      display: block;
+    }
+
+    .result-content {
+      padding: 24px;
+      padding-bottom: 60px;
+      background: var(--card-bg);
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .result-content h2 {
+      font-size: 22px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+    }
+
+    .result-content h3 {
+      font-size: 19px;
+      margin-top: 28px;
+      margin-bottom: 12px;
+      padding-left: 14px;
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+        margin-bottom: 16px;
+      }
+
+      table {
+        font-size: 13px;
+        min-width: 800px;
+      }
+
+      table th,
+      table td {
+        padding: 10px 12px;
+      }
+
+      table th:first-child,
+      table td:first-child {
+        min-width: 120px;
+        padding-left: 14px;
+      }
+
+    .stock-card {
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+
+    .stock-card .stock-name {
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+
+    .back-to-top {
+      bottom: 30px;
+      right: 30px;
+      width: 52px;
+      height: 52px;
+      font-size: 24px;
+    }
+
+    .toast {
+      padding: 16px 32px;
+      font-size: 15px;
+      border-radius: 14px;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="header">
+      <h1>巴菲特估值</h1>
+    </div>
+
+    <div class="main-content">
+      <div class="input-section-wrapper">
+        <div class="input-section">
+          <div class="input-header">
+            <span class="input-title">股票代码</span>
+          </div>
+          <div class="input-body">
+            <div class="input-group">
+              <span class="label">A</span>
+              <input type="text" id="stock-code" placeholder="请输入股票代码" />
+            </div>
+
+            <div class="year-select-group">
+              <span class="label">选择连续年限：</span>
+              <div class="year-options">
+                <span class="year-option active" data-value="5">5年</span>
+                <span class="year-option" data-value="8">8年</span>
+                <span class="year-option" data-value="10">10年</span>
+                <span class="year-option" data-value="15">15年</span>
+                <span class="year-option" data-value="20">20年</span>
+              </div>
+            </div>
+
+            <button class="submit-btn" id="submit-btn">开始估值</button>
+
+            <div class="error-msg" id="error-msg"></div>
+
+            <div class="tips">
+              <strong>提示：</strong>
+              <ul>
+                <li>支持输入A股股票代码（6位数字），如 000538、600519</li>
+                <li>选择年限后，将分析对应年限的财务数据</li>
+                <li>折旧与摊销 = 固定资产折旧 + 无形资产摊销 + 长期待摊费用摊销</li>
+                <li>维持性资本支出 = 购建固定资产支付的现金 - 扩张性资本支出</li>
+                <li>股东盈余 = 归属于母公司净利润 + 折旧与摊销 - 维持性资本支出</li>
+                <li>留存比值 = 市值增长 / 总留存收益</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="result-section-wrapper">
+        <div class="result-section" id="result-section">
+          <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>正在获取财务数据...</p>
+          </div>
+          <div id="result-content" class="result-content" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="back-to-top" id="back-to-top">↑</button>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  var stockInput = document.getElementById('stock-code');
+  var submitBtn = document.getElementById('submit-btn');
+  var errorMsg = document.getElementById('error-msg');
+  var yearOptions = document.querySelectorAll('.year-option');
+  var resultSection = document.getElementById('result-section');
+  var loading = document.getElementById('loading');
+  var resultContent = document.getElementById('result-content');
+  var backToTop = document.getElementById('back-to-top');
+  var toast = document.getElementById('toast');
+  var selectedYears = 5;
+  var currentXhr = null;
+  var isSubmitting = false;
+  var currentData = null;
+
+  loading.style.display = 'none';
+
+  yearOptions.forEach(function(opt) {
+    opt.addEventListener('click', function() {
+      yearOptions.forEach(function(o) { o.classList.remove('active'); });
+      opt.classList.add('active');
+      selectedYears = parseInt(opt.dataset.value);
+    });
+  });
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('show');
+    setTimeout(function() { errorMsg.classList.remove('show'); }, 3000);
+  }
+
+  function showToast(msg, duration) {
+    if (duration === undefined) duration = 2000;
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, duration);
+  }
+
+  function formatNumber(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return num.toFixed(2);
+  }
+
+  function formatPercent(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return num.toFixed(2) + '%';
+  }
+
+  function formatPrice(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return num.toFixed(2) + '元';
+  }
+
+  function calculateShareholderEarnings(rowData) {
+    var netProfit = parseFloat(rowData.net_profit) || 0;
+    var depreciation = parseFloat(rowData.depreciation_amortization) || 0;
+    var maintenanceCapex = parseFloat(rowData.maintenance_capex) || 0;
+    return netProfit + depreciation - maintenanceCapex;
+  }
+
+  function calculatePerShareEarningsYield(shareholderEarnings, marketCap) {
+    if (!shareholderEarnings || !marketCap || marketCap === 0) return null;
+    return (shareholderEarnings / marketCap) * 100;
+  }
+
+  function createSummaryCard(data) {
+    var card = document.createElement('div');
+    card.className = 'summary-card';
+    
+    var items = [
+      { label: '起始年份', value: data.start_year || '-' },
+      { label: '截止年份', value: data.end_year || '-' },
+      { label: '总留存收益', value: formatNumber(data.total_retained_earnings) },
+      { label: '起始市值（后复权）', value: formatNumber(data.start_market_cap) },
+      { label: '当前市值（后复权）' + (data.current_fq_date ? '(' + data.current_fq_date + ')' : ''), value: formatNumber(data.current_market_cap) + '<span style="font-size:12px;color:#999;margin-left:8px;">(后复权价:' + formatPrice(data.current_fq_price) + ')</span>' },
+      { label: '市值增长', value: formatNumber(data.market_cap_growth) },
+      { label: '留存比值', value: formatPercent(data.retained_growth_rate), highlight: true }
+    ];
+    
+    items.forEach(function(item) {
+      var itemDiv = document.createElement('div');
+      itemDiv.className = 'summary-item';
+      itemDiv.innerHTML = '<span class="label">' + item.label + '</span><span class="value' + (item.highlight ? ' highlight' : '') + '">' + item.value + '</span>';
+      card.appendChild(itemDiv);
+    });
+    
+    return card;
+  }
+
+  function createEditableCell(value, fieldName, rowIndex, onChange) {
+    var td = document.createElement('td');
+    td.className = 'value-num editable-cell';
+    td.dataset.field = fieldName;
+    td.dataset.row = rowIndex;
+    
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.01';
+    input.className = 'editable-input';
+    input.dataset.field = fieldName;
+    input.dataset.row = rowIndex;
+    
+    if (value !== null && value !== undefined && !isNaN(value)) {
+      input.value = value;
+    } else {
+      input.placeholder = '点击输入';
+    }
+    
+    input.addEventListener('blur', function() {
+      var newValue = parseFloat(this.value);
+      onChange(rowIndex, fieldName, newValue);
+      if (newValue !== null && !isNaN(newValue)) {
+        input.value = newValue;
+      } else {
+        input.value = '';
+        input.placeholder = '点击输入';
+      }
+    });
+    
+    td.appendChild(input);
+    return td;
+  }
+
+  function createTable(data) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'table-wrapper';
+    
+    var table = document.createElement('table');
+    
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    var headers = ['年份', '不复权价(元)', '总股本(亿股)', '市值(亿)', '归母公司净利润(亿)', '折旧与摊销(亿)', '维持性资本支出(亿)', '股东盈余(亿)', '每股股东盈余收益率', '现金分红(亿)', '留存收益(亿)'];
+    
+    headers.forEach(function(header) {
+      var th = document.createElement('th');
+      th.textContent = header;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    
+    var tbody = document.createElement('tbody');
+    
+    data.yearly_data.forEach(function(item, index) {
+      var row = document.createElement('tr');
+      row.dataset.index = index;
+      
+      var yearCell = document.createElement('td');
+      yearCell.textContent = item.year;
+      row.appendChild(yearCell);
+      
+      var nonFqPriceCell = document.createElement('td');
+      nonFqPriceCell.className = 'value-num';
+      nonFqPriceCell.textContent = formatNumber(item.non_fq_price);
+      row.appendChild(nonFqPriceCell);
+      
+      var totalSharesCell = document.createElement('td');
+      totalSharesCell.className = 'value-num';
+      var shares = item.total_shares ? (item.total_shares / 100000000) : null;
+      totalSharesCell.textContent = formatNumber(shares);
+      row.appendChild(totalSharesCell);
+      
+      var marketCapCell = document.createElement('td');
+      marketCapCell.className = 'value-num';
+      marketCapCell.textContent = formatNumber(item.market_cap);
+      row.appendChild(marketCapCell);
+      
+      var netProfitCell = document.createElement('td');
+      netProfitCell.className = 'value-num';
+      netProfitCell.textContent = formatNumber(item.net_profit);
+      row.appendChild(netProfitCell);
+      
+      var depCell = createEditableCell(item.depreciation_amortization, 'depreciation_amortization', index, onCellChange);
+      row.appendChild(depCell);
+      
+      var capexCell = createEditableCell(item.maintenance_capex, 'maintenance_capex', index, onCellChange);
+      row.appendChild(capexCell);
+      
+      var shareholderEarnings = calculateShareholderEarnings(item);
+      var shareholderEarningsCell = document.createElement('td');
+      shareholderEarningsCell.className = 'value-num earnings-cell';
+      shareholderEarningsCell.textContent = formatNumber(shareholderEarnings);
+      row.appendChild(shareholderEarningsCell);
+      
+      var yieldRate = calculatePerShareEarningsYield(shareholderEarnings, item.market_cap);
+      var yieldCell = document.createElement('td');
+      yieldCell.className = 'value-num';
+      yieldCell.textContent = formatPercent(yieldRate);
+      row.appendChild(yieldCell);
+      
+      var dividendCell = document.createElement('td');
+      dividendCell.className = 'value-num';
+      dividendCell.textContent = formatNumber(item.dividend);
+      row.appendChild(dividendCell);
+      
+      var retainedCell = document.createElement('td');
+      retainedCell.className = 'value-num';
+      retainedCell.textContent = formatNumber(item.retained_earnings);
+      row.appendChild(retainedCell);
+      
+      tbody.appendChild(row);
+    });
+    
+    var totalRow = document.createElement('tr');
+    totalRow.style.fontWeight = '600';
+    totalRow.style.background = '#fafafa';
+    
+    ['合计', '-', '-', '-', formatNumber(data.total_net_profit), '-', '-', '-', '-', formatNumber(data.total_dividend), formatNumber(data.total_retained_earnings)].forEach(function(val) {
+      var td = document.createElement('td');
+      td.className = 'value-num';
+      td.textContent = val;
+      totalRow.appendChild(td);
+    });
+    tbody.appendChild(totalRow);
+    
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    
+    return wrapper;
+  }
+
+  function onCellChange(rowIndex, fieldName, value) {
+    if (!currentData || !currentData.yearly_data[rowIndex]) return;
+    
+    currentData.yearly_data[rowIndex][fieldName] = value;
+    
+    var rowData = currentData.yearly_data[rowIndex];
+    var shareholderEarnings = calculateShareholderEarnings(rowData);
+    rowData.shareholder_earnings = shareholderEarnings;
+    
+    var yieldRate = calculatePerShareEarningsYield(shareholderEarnings, rowData.market_cap);
+    rowData.per_share_yield = yieldRate;
+    
+    updateTableDisplay();
+  }
+
+  function updateTableDisplay() {
+    var table = resultContent.querySelector('table');
+    if (!table) return;
+    
+    var rows = table.querySelectorAll('tbody tr');
+    currentData.yearly_data.forEach(function(item, index) {
+      if (rows[index]) {
+        var cells = rows[index].querySelectorAll('td');
+        if (cells[7]) {
+          cells[7].textContent = formatNumber(calculateShareholderEarnings(item));
+        }
+        if (cells[8]) {
+          cells[8].textContent = formatPercent(calculatePerShareEarningsYield(item.shareholder_earnings, item.market_cap));
+        }
+      }
+    });
+  }
+
+  function createAnalysisSection(data) {
+    var section = document.createElement('div');
+    
+    var h3 = document.createElement('h3');
+    h3.textContent = '估值解读';
+    section.appendChild(h3);
+    
+    var p = document.createElement('p');
+    p.style.lineHeight = '1.8';
+    
+    if (data.retained_growth_rate === null || data.retained_growth_rate === undefined) {
+      p.innerHTML = '<strong style="color:#999;">留存比值：无法计算</strong> 由于无法获取后复权价格数据，无法计算留存比值。留存比值 = 市值增长 / 总留存收益。';
+    } else if (data.retained_growth_rate >= 100) {
+      p.innerHTML = '<strong style="color:#2ecc71;">留存比值 ≥ 100%：优秀！</strong> 公司的留存收益创造了超过100%的市值增长，说明管理层非常优秀，能够高效利用留存收益创造价值。';
+    } else if (data.retained_growth_rate >= 50) {
+      p.innerHTML = '<strong style="color:#3498db;">留存比值 50%-100%：良好</strong> 公司的留存收益创造了不错的市值增长，管理层能够较好地利用留存收益。';
+    } else if (data.retained_growth_rate >= 0) {
+      p.innerHTML = '<strong style="color:#f39c12;">留存比值 0%-50%：一般</strong> 公司的留存收益创造的市值增长低于投入，可能存在效率问题。';
+    } else {
+      p.innerHTML = '<strong style="color:#e74c3c;">留存比值 < 0%：较差</strong> 公司的留存收益没有创造价值，反而导致市值缩水。';
+    }
+    
+    section.appendChild(p);
+    return section;
+  }
+
+  function renderResult(data) {
+    currentData = data;
+    
+    resultContent.innerHTML = '';
+    
+    var h2 = document.createElement('h2');
+    h2.textContent = data.stock_name + '(' + data.stock_code + ') - 巴菲特估值分析';
+    if (data.from_cache) {
+      var badge = document.createElement('span');
+      badge.className = 'cache-badge';
+      badge.textContent = '已缓存';
+      h2.appendChild(badge);
+    }
+    resultContent.appendChild(h2);
+    
+    resultContent.appendChild(createSummaryCard(data));
+    
+    var h3 = document.createElement('h3');
+    h3.textContent = '年度财务数据';
+    resultContent.appendChild(h3);
+    
+    resultContent.appendChild(createTable(data));
+    
+    resultContent.appendChild(createAnalysisSection(data));
+    
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'save-btn';
+    saveBtn.textContent = '保存数据';
+    saveBtn.addEventListener('click', saveData);
+    resultContent.appendChild(saveBtn);
+  }
+
+  function saveData() {
+    if (!currentData) {
+      showError('没有可保存的数据');
+      return;
+    }
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/buffett_valuation/save', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        var response = JSON.parse(xhr.responseText);
+        if (response.success) {
+          showToast('数据保存成功');
+        } else {
+          showError(response.error || '保存失败');
+        }
+      } else {
+        showError('保存失败，请稍后重试');
+      }
+    };
+    
+    xhr.onerror = function() {
+      showError('网络连接失败，无法保存');
+    };
+    
+    xhr.send(JSON.stringify(currentData));
+  }
+
+  function queryCachedData(code, years, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/buffett_valuation/cached?code=' + code + '&years=' + years, true);
+    
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          callback(data.from_cache, data);
+        } catch (e) {
+          callback(false, null);
+        }
+      } else {
+        callback(false, null);
+      }
+    };
+    
+    xhr.onerror = function() {
+      callback(false, null);
+    };
+    
+    xhr.send();
+  }
+
+  function queryRemoteData(code, years, callback) {
+    var xhr = new XMLHttpRequest();
+    currentXhr = xhr;
+    xhr.open('GET', '/api/buffett_valuation?code=' + code + '&years=' + years + '&_=' + Date.now(), true);
+    
+    xhr.onload = function() {
+      if (xhr !== currentXhr) return;
+      
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          callback(null, data);
+        } catch (e) {
+          callback('数据解析失败：' + e.message, null);
+        }
+      } else {
+        callback('获取数据失败，请稍后重试', null);
+      }
+    };
+    
+    xhr.onerror = function() {
+      if (xhr !== currentXhr) return;
+      callback('网络连接失败，请检查网络', null);
+    };
+    
+    xhr.send();
+  }
+
+  submitBtn.addEventListener('click', function() {
+    if (isSubmitting) {
+      return;
+    }
+
+    var code = stockInput.value.trim();
+    if (!code) {
+      showError('请输入股票代码');
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      showError('请输入6位数字的股票代码');
+      return;
+    }
+
+    isSubmitting = true;
+    submitBtn.disabled = true;
+    errorMsg.classList.remove('show');
+    resultContent.style.display = 'none';
+    loading.style.display = 'block';
+
+    if (currentXhr) {
+      currentXhr.abort();
+    }
+
+    queryCachedData(code, selectedYears, function(fromCache, cachedData) {
+      var cachedPeriods = {};
+      if (fromCache && cachedData && cachedData.yearly_data) {
+        for (var i = 0; i < cachedData.yearly_data.length; i++) {
+          var item = cachedData.yearly_data[i];
+          if (item.period) {
+            cachedPeriods[item.period] = item;
+          }
+        }
+      }
+      
+      loading.textContent = '正在获取财务数据...';
+      queryRemoteData(code, selectedYears, function(error, data) {
+        isSubmitting = false;
+        submitBtn.disabled = false;
+        loading.style.display = 'none';
+
+        if (error) {
+          showError(error);
+        } else if (data.error) {
+          showError(data.error);
+        } else {
+          if (Object.keys(cachedPeriods).length > 0) {
+            for (var i = 0; i < data.yearly_data.length; i++) {
+              var item = data.yearly_data[i];
+              if (item.period && cachedPeriods[item.period]) {
+                var cachedItem = cachedPeriods[item.period];
+                if (cachedItem.market_cap !== null && cachedItem.market_cap !== undefined) {
+                  item.market_cap = cachedItem.market_cap;
+                }
+                if (cachedItem.non_fq_price !== null && cachedItem.non_fq_price !== undefined) {
+                  item.non_fq_price = cachedItem.non_fq_price;
+                }
+                if (cachedItem.total_shares !== null && cachedItem.total_shares !== undefined) {
+                  item.total_shares = cachedItem.total_shares;
+                }
+                if (cachedItem.depreciation_amortization !== null && cachedItem.depreciation_amortization !== undefined) {
+                  item.depreciation_amortization = cachedItem.depreciation_amortization;
+                }
+                if (cachedItem.maintenance_capex !== null && cachedItem.maintenance_capex !== undefined) {
+                  item.maintenance_capex = cachedItem.maintenance_capex;
+                }
+                if (cachedItem.expansion_capex !== null && cachedItem.expansion_capex !== undefined) {
+                  item.expansion_capex = cachedItem.expansion_capex;
+                }
+                if (cachedItem.shareholder_earnings !== null && cachedItem.shareholder_earnings !== undefined) {
+                  item.shareholder_earnings = cachedItem.shareholder_earnings;
+                }
+              }
+            }
+            showToast('已合并缓存数据');
+          }
+          
+          renderResult(data);
+          resultSection.classList.add('show');
+          resultContent.style.display = 'block';
+          showToast('估值计算完成');
+        }
+      });
+    });
+  });
+
+  window.addEventListener('scroll', function() {
+    if (window.scrollY > 300) {
+      backToTop.classList.add('show');
+    } else {
+      backToTop.classList.remove('show');
+    }
+  });
+
+  backToTop.addEventListener('click', function() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>
