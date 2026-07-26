@@ -416,6 +416,74 @@
     border: 1px solid var(--border-color);
   }
 
+  .column-selector {
+    position: relative;
+    padding: 8px 12px;
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .column-selector-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .column-selector-btn:hover {
+    background: #a00000;
+  }
+
+  .column-selector-btn .icon {
+    font-size: 14px;
+  }
+
+  .column-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 12px;
+    margin-top: 4px;
+    padding: 8px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    min-width: 180px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .column-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-color);
+    border-radius: 4px;
+    transition: background 0.15s;
+  }
+
+  .column-item:hover {
+    background: var(--bg-light);
+  }
+
+  .column-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
   table {
     width: 100%;
     min-width: 700px;
@@ -961,13 +1029,28 @@
     var card = document.createElement('div');
     card.className = 'summary-card';
     
+    var priceIncrease = 0;
+    if (data.start_fq_price && data.start_fq_price > 0 && data.current_fq_price) {
+      priceIncrease = ((data.current_fq_price - data.start_fq_price) / data.start_fq_price) * 100;
+    }
+    
+    var marketCapIncrease = 0;
+    if (data.start_market_cap && data.start_market_cap > 0 && data.current_market_cap) {
+      marketCapIncrease = ((data.current_market_cap - data.start_market_cap) / data.start_market_cap) * 100;
+    }
+    
     var items = [
       { label: '起始年份', value: data.start_year || '-' },
       { label: '截止年份', value: data.end_year || '-' },
+      { label: '起始后复权价', value: formatPrice(data.start_fq_price) + (data.start_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.start_fq_date + ')</span>' : '') },
+      { label: '当前后复权价', value: formatPrice(data.current_fq_price) + (data.current_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.current_fq_date + ')</span>' : '') },
+      { label: '股价涨幅', value: formatPercent(priceIncrease) },
+      { label: '总分红', value: formatNumber(data.total_dividend) },
       { label: '总留存收益', value: formatNumber(data.total_retained_earnings) },
       { label: '起始市值（后复权）', value: formatNumber(data.start_market_cap) },
-      { label: '当前市值（后复权）' + (data.current_fq_date ? '(' + data.current_fq_date + ')' : ''), value: formatNumber(data.current_market_cap) + '<span style="font-size:12px;color:#999;margin-left:8px;">(后复权价:' + formatPrice(data.current_fq_price) + ')</span>' },
+      { label: '当前市值（后复权）', value: formatNumber(data.current_market_cap) },
       { label: '市值增长', value: formatNumber(data.market_cap_growth) },
+      { label: '市值涨幅', value: formatPercent(marketCapIncrease) },
       { label: '留存比值', value: formatPercent(data.retained_growth_rate), highlight: true }
     ];
     
@@ -1015,19 +1098,105 @@
     return td;
   }
 
+  var columnConfig = [
+    { key: 'year', label: '年份', visible: true },
+    { key: 'price_date', label: '价格日期', visible: true },
+    { key: 'non_fq_price', label: '不复权价(元)', visible: true },
+    { key: 'total_shares', label: '总股本(亿股)', visible: true },
+    { key: 'market_cap', label: '市值(亿)', visible: true },
+    { key: 'net_profit', label: '归母公司净利润(亿)', visible: true },
+    { key: 'depreciation_amortization', label: '折旧与摊销(亿)', visible: true },
+    { key: 'maintenance_capex', label: '维持性资本支出(亿)', visible: true },
+    { key: 'shareholder_earnings', label: '股东盈余(亿)', visible: true },
+    { key: 'per_share_yield', label: '每股股东盈余收益率', visible: true },
+    { key: 'dividend', label: '现金分红(亿)', visible: true },
+    { key: 'retained_earnings', label: '留存收益(亿)', visible: true }
+  ];
+
+  function createColumnSelector() {
+    var selector = document.createElement('div');
+    selector.className = 'column-selector';
+    
+    var button = document.createElement('button');
+    button.className = 'column-selector-btn';
+    button.innerHTML = '<span class="icon">☰</span> 选择列';
+    selector.appendChild(button);
+    
+    var dropdown = document.createElement('div');
+    dropdown.className = 'column-dropdown';
+    
+    columnConfig.forEach(function(col, index) {
+      var item = document.createElement('label');
+      item.className = 'column-item';
+      
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = col.visible;
+      checkbox.dataset.index = index;
+      checkbox.dataset.key = col.key;
+      
+      checkbox.addEventListener('change', function() {
+        var idx = parseInt(this.dataset.index);
+        columnConfig[idx].visible = this.checked;
+        toggleColumn(idx, this.checked);
+      });
+      
+      var span = document.createElement('span');
+      span.textContent = col.label;
+      
+      item.appendChild(checkbox);
+      item.appendChild(span);
+      dropdown.appendChild(item);
+    });
+    
+    selector.appendChild(dropdown);
+    
+    button.addEventListener('click', function(e) {
+      e.stopPropagation();
+      dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+    });
+    
+    document.addEventListener('click', function() {
+      dropdown.style.display = 'none';
+    });
+    
+    return selector;
+  }
+
+  function toggleColumn(index, visible) {
+    var table = resultContent.querySelector('table');
+    if (!table) return;
+    
+    var colClass = 'col-' + index;
+    var ths = table.querySelectorAll('thead tr th.' + colClass);
+    var tds = table.querySelectorAll('tbody tr td.' + colClass);
+    
+    ths.forEach(function(th) {
+      th.style.display = visible ? '' : 'none';
+    });
+    
+    tds.forEach(function(td) {
+      td.style.display = visible ? '' : 'none';
+    });
+  }
+
   function createTable(data) {
     var wrapper = document.createElement('div');
     wrapper.className = 'table-wrapper';
+    
+    var selector = createColumnSelector();
+    wrapper.appendChild(selector);
     
     var table = document.createElement('table');
     
     var thead = document.createElement('thead');
     var headerRow = document.createElement('tr');
-    var headers = ['年份', '不复权价(元)', '总股本(亿股)', '市值(亿)', '归母公司净利润(亿)', '折旧与摊销(亿)', '维持性资本支出(亿)', '股东盈余(亿)', '每股股东盈余收益率', '现金分红(亿)', '留存收益(亿)'];
     
-    headers.forEach(function(header) {
+    columnConfig.forEach(function(col, idx) {
       var th = document.createElement('th');
-      th.textContent = header;
+      th.textContent = col.label;
+      th.className = 'col-' + idx;
+      th.style.display = col.visible ? '' : 'none';
       headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
@@ -1041,55 +1210,75 @@
       
       var yearCell = document.createElement('td');
       yearCell.textContent = item.year;
+      yearCell.className = 'col-0';
+      yearCell.style.display = columnConfig[0].visible ? '' : 'none';
       row.appendChild(yearCell);
       
+      var priceDateCell = document.createElement('td');
+      priceDateCell.className = 'col-1';
+      priceDateCell.textContent = item.price_date || '-';
+      priceDateCell.style.display = columnConfig[1].visible ? '' : 'none';
+      row.appendChild(priceDateCell);
+      
       var nonFqPriceCell = document.createElement('td');
-      nonFqPriceCell.className = 'value-num';
+      nonFqPriceCell.className = 'value-num col-2';
       nonFqPriceCell.textContent = formatNumber(item.non_fq_price);
+      nonFqPriceCell.style.display = columnConfig[2].visible ? '' : 'none';
       row.appendChild(nonFqPriceCell);
       
       var totalSharesCell = document.createElement('td');
-      totalSharesCell.className = 'value-num';
+      totalSharesCell.className = 'value-num col-3';
       var shares = item.total_shares ? (item.total_shares / 100000000) : null;
       totalSharesCell.textContent = formatNumber(shares);
+      totalSharesCell.style.display = columnConfig[3].visible ? '' : 'none';
       row.appendChild(totalSharesCell);
       
       var marketCapCell = document.createElement('td');
-      marketCapCell.className = 'value-num';
+      marketCapCell.className = 'value-num col-4';
       marketCapCell.textContent = formatNumber(item.market_cap);
+      marketCapCell.style.display = columnConfig[4].visible ? '' : 'none';
       row.appendChild(marketCapCell);
       
       var netProfitCell = document.createElement('td');
-      netProfitCell.className = 'value-num';
+      netProfitCell.className = 'value-num col-5';
       netProfitCell.textContent = formatNumber(item.net_profit);
+      netProfitCell.style.display = columnConfig[5].visible ? '' : 'none';
       row.appendChild(netProfitCell);
       
       var depCell = createEditableCell(item.depreciation_amortization, 'depreciation_amortization', index, onCellChange);
+      depCell.className = depCell.className + ' col-6';
+      depCell.style.display = columnConfig[6].visible ? '' : 'none';
       row.appendChild(depCell);
       
       var capexCell = createEditableCell(item.maintenance_capex, 'maintenance_capex', index, onCellChange);
+      capexCell.className = capexCell.className + ' col-7';
+      capexCell.style.display = columnConfig[7].visible ? '' : 'none';
       row.appendChild(capexCell);
       
       var shareholderEarnings = calculateShareholderEarnings(item);
       var shareholderEarningsCell = document.createElement('td');
-      shareholderEarningsCell.className = 'value-num earnings-cell';
+      shareholderEarningsCell.className = 'value-num earnings-cell col-8';
       shareholderEarningsCell.textContent = formatNumber(shareholderEarnings);
+      shareholderEarningsCell.style.display = columnConfig[8].visible ? '' : 'none';
       row.appendChild(shareholderEarningsCell);
       
       var yieldRate = calculatePerShareEarningsYield(shareholderEarnings, item.market_cap);
       var yieldCell = document.createElement('td');
-      yieldCell.className = 'value-num';
+      yieldCell.className = 'value-num col-9';
       yieldCell.textContent = formatPercent(yieldRate);
+      yieldCell.style.display = columnConfig[9].visible ? '' : 'none';
       row.appendChild(yieldCell);
       
       var dividendCell = document.createElement('td');
-      dividendCell.className = 'value-num';
+      dividendCell.className = 'value-num col-10';
       dividendCell.textContent = formatNumber(item.dividend);
+      dividendCell.style.display = columnConfig[10].visible ? '' : 'none';
       row.appendChild(dividendCell);
       
       var retainedCell = document.createElement('td');
-      retainedCell.className = 'value-num';
+      retainedCell.className = 'value-num col-11';
       retainedCell.textContent = formatNumber(item.retained_earnings);
+      retainedCell.style.display = columnConfig[11].visible ? '' : 'none';
       row.appendChild(retainedCell);
       
       tbody.appendChild(row);
@@ -1099,10 +1288,12 @@
     totalRow.style.fontWeight = '600';
     totalRow.style.background = '#fafafa';
     
-    ['合计', '-', '-', '-', formatNumber(data.total_net_profit), '-', '-', '-', '-', formatNumber(data.total_dividend), formatNumber(data.total_retained_earnings)].forEach(function(val) {
+    var totalValues = ['合计', '-', '-', '-', '-', formatNumber(data.total_net_profit), '-', '-', '-', '-', formatNumber(data.total_dividend), formatNumber(data.total_retained_earnings)];
+    totalValues.forEach(function(val, index) {
       var td = document.createElement('td');
-      td.className = 'value-num';
+      td.className = 'value-num col-' + index;
       td.textContent = val;
+      td.style.display = columnConfig[index].visible ? '' : 'none';
       totalRow.appendChild(td);
     });
     tbody.appendChild(totalRow);
@@ -1136,11 +1327,11 @@
     currentData.yearly_data.forEach(function(item, index) {
       if (rows[index]) {
         var cells = rows[index].querySelectorAll('td');
-        if (cells[7]) {
-          cells[7].textContent = formatNumber(calculateShareholderEarnings(item));
-        }
         if (cells[8]) {
-          cells[8].textContent = formatPercent(calculatePerShareEarningsYield(item.shareholder_earnings, item.market_cap));
+          cells[8].textContent = formatNumber(calculateShareholderEarnings(item));
+        }
+        if (cells[9]) {
+          cells[9].textContent = formatPercent(calculatePerShareEarningsYield(item.shareholder_earnings, item.market_cap));
         }
       }
     });

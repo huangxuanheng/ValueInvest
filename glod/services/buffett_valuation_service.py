@@ -67,7 +67,7 @@ class BuffettValuationService:
         start_year = yearly_data[0]['year'] if yearly_data else None
         end_year = yearly_data[-1]['year'] if yearly_data else None
         
-        yearly_market_cap, yearly_non_fq_price = self._calculate_yearly_market_cap(annual_periods, non_fq_close_dict, adjusted_shares_data)
+        yearly_market_cap, yearly_non_fq_price, yearly_price_date = self._calculate_yearly_market_cap(annual_periods, non_fq_close_dict, adjusted_shares_data)
         
         depreciation_amortization_data = self._calculate_depreciation_amortization(annual_periods, cashflow_data)
         
@@ -91,6 +91,7 @@ class BuffettValuationService:
             period = item['period']
             item['market_cap'] = yearly_market_cap.get(period)
             item['non_fq_price'] = yearly_non_fq_price.get(period)
+            item['price_date'] = yearly_price_date.get(period)
             item['total_shares'] = adjusted_shares_data.get(period)
             item['depreciation_amortization'] = depreciation_amortization_data.get(period)
             item['capex'] = capex_data.get(period) / 100000000 if capex_data.get(period) else None
@@ -608,6 +609,7 @@ class BuffettValuationService:
         """计算每年的市值：使用年报次年5月1日（或最近交易日）的后复权收盘价 × 当年总股本"""
         yearly_market_cap = {}
         yearly_fq_price = {}
+        yearly_price_date = {}
         
         print(f'  [buffett] _calculate_yearly_market_cap: price_dict size={len(price_dict)}, total_shares_data size={len(total_shares_data)}')
         
@@ -619,23 +621,26 @@ class BuffettValuationService:
                     target_date = pd.Timestamp(f"{next_year}-05-01")
                     sorted_dates = sorted(price_dict.keys())
                     price = None
+                    price_date = None
                     for d in reversed(sorted_dates):
                         if d <= target_date:
                             price = price_dict[d]
+                            price_date = d
                             break
                     
                     shares = total_shares_data.get(period, 0)
                     if shares == 0 and len(total_shares_data) > 0:
                         shares = list(total_shares_data.values())[0]
                     
-                    print(f'  [buffett] 年度市值计算 {period}: price={price}, shares={shares}')
+                    print(f'  [buffett] 年度市值计算 {period}: target_date={target_date}, actual_date={price_date}, price={price}, shares={shares}')
                     
                     if price and price > 0 and shares > 0 and shares < 1e18:
                         market_cap = price * shares / 100000000
                         if market_cap > 0 and market_cap < 1e8:
                             yearly_market_cap[period] = market_cap
                             yearly_fq_price[period] = price
-                            print(f'  [buffett] 年度市值计算成功 {period}: price={price}, shares={shares}, market_cap={market_cap} 亿')
+                            yearly_price_date[period] = str(price_date) if price_date else None
+                            print(f'  [buffett] 年度市值计算成功 {period}: date={yearly_price_date[period]}, price={price}, shares={shares}, market_cap={market_cap} 亿')
                         else:
                             print(f'  [buffett] 市值计算异常 {period}: price={price}, shares={shares}, market_cap={market_cap}')
                     else:
@@ -644,7 +649,7 @@ class BuffettValuationService:
                     print(f'  [buffett] 计算年度市值 {period} 失败: {e}')
         
         print(f'  [buffett] yearly_market_cap 结果: {list(yearly_market_cap.keys())}')
-        return yearly_market_cap, yearly_fq_price
+        return yearly_market_cap, yearly_fq_price, yearly_price_date
 
     def _calculate_depreciation_amortization(self, annual_periods: list, cashflow_data: dict):
         """计算折旧与摊销 = 固定资产折旧+无形资产摊销+长期待摊费用摊销"""
