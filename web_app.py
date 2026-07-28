@@ -190,7 +190,11 @@ except Exception as _conn_err:
     print("!" * 72 + "\n")
 
 engine = create_engine(DB_URL, echo=False, future=True,
-                       connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
+                       connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {"connect_timeout": 5},
+                       pool_size=5,
+                       max_overflow=10,
+                       pool_recycle=3600,
+                       pool_pre_ping=True)
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
@@ -2613,29 +2617,46 @@ def api_buffett_valuation():
     
     try:
         from glod.services.buffett_valuation_service import BuffettValuationService
-        from glod.models import BuffettValuation, SessionLocal
         import json
         
-        db = SessionLocal()
-        all_cached_records = db.query(BuffettValuation).filter(
-            BuffettValuation.stock_code == code
-        ).all()
-        
         period_cache = {}
-        for record in all_cached_records:
-            if record.yearly_data:
-                try:
-                    yearly_data = json.loads(record.yearly_data)
-                    for item in yearly_data:
-                        period = item.get('period')
-                        if period:
-                            if period not in period_cache:
-                                period_cache[period] = {}
-                            for key in ['market_cap', 'non_fq_price', 'total_shares', 'depreciation_amortization', 'maintenance_capex', 'expansion_capex', 'shareholder_earnings']:
-                                if item.get(key) is not None and period_cache[period].get(key) is None:
-                                    period_cache[period][key] = item[key]
-                except:
-                    pass
+        cached_total_data = None
+        
+        try:
+            from glod.models import BuffettValuation, SessionLocal
+            
+            db = SessionLocal()
+            
+            current_user = _current_user()
+            user_id = current_user.id if current_user else None
+            
+            if user_id:
+                all_cached_records = db.query(BuffettValuation).filter(
+                    BuffettValuation.stock_code == code,
+                    BuffettValuation.user_id == user_id
+                ).all()
+                
+                for record in all_cached_records:
+                    if record.yearly_data:
+                        try:
+                            yearly_data = json.loads(record.yearly_data)
+                            for item in yearly_data:
+                                period = item.get('period')
+                                if period:
+                                    if period not in period_cache:
+                                        period_cache[period] = {}
+                                    for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                                        val = item.get(key)
+                                        if val is not None:
+                                            period_cache[period][key] = val
+                        except Exception as e:
+                            print(f'[API] 解析缓存数据失败: {e}')
+                            pass
+            
+            db.close()
+        except Exception as db_err:
+            print(f'[API] 数据库查询缓存失败: {db_err}')
+            period_cache = {}
         
         service = BuffettValuationService()
         result = service.calculate(code, years)
@@ -2645,21 +2666,9 @@ def api_buffett_valuation():
                 period = item['period']
                 if period in period_cache:
                     cached_period = period_cache[period]
-                    if cached_period.get('market_cap') is not None:
-                        item['market_cap'] = cached_period['market_cap']
-                        print(f'[API] 使用缓存市值: {period} = {cached_period["market_cap"]}')
-                    if cached_period.get('non_fq_price') is not None:
-                        item['non_fq_price'] = cached_period['non_fq_price']
-                    if cached_period.get('total_shares') is not None:
-                        item['total_shares'] = cached_period['total_shares']
-                    if cached_period.get('depreciation_amortization') is not None:
-                        item['depreciation_amortization'] = cached_period['depreciation_amortization']
-                    if cached_period.get('maintenance_capex') is not None:
-                        item['maintenance_capex'] = cached_period['maintenance_capex']
-                    if cached_period.get('expansion_capex') is not None:
-                        item['expansion_capex'] = cached_period['expansion_capex']
-                    if cached_period.get('shareholder_earnings') is not None:
-                        item['shareholder_earnings'] = cached_period['shareholder_earnings']
+                    for key in ['year', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                        if cached_period.get(key) is not None:
+                            item[key] = cached_period[key]
         
         print(f'[API] buffett_valuation response: total_net_profit={result["total_net_profit"]}, total_retained_earnings={result["total_retained_earnings"]}, start_market_cap={result["start_market_cap"]}')
         response = jsonify(result)
@@ -2687,17 +2696,28 @@ def api_buffett_valuation_cached():
     try:
         from glod.models import BuffettValuation, SessionLocal
         import json
+        from datetime import datetime
         
         db = SessionLocal()
-        all_cached_records = db.query(BuffettValuation).filter(
-            BuffettValuation.stock_code == code
-        ).all()
+        
+        current_user = _current_user()
+        user_id = current_user.id if current_user else None
+        
+        if user_id:
+            all_cached_records = db.query(BuffettValuation).filter(
+                BuffettValuation.stock_code == code,
+                BuffettValuation.user_id == user_id
+            ).all()
+        else:
+            all_cached_records = []
         
         if not all_cached_records:
             print(f'[API] buffett_valuation_cached not found: {code}')
             return jsonify({"from_cache": False})
         
         period_cache = {}
+        total_data = {}
+        
         for record in all_cached_records:
             if record.yearly_data:
                 try:
@@ -2707,26 +2727,180 @@ def api_buffett_valuation_cached():
                         if period:
                             if period not in period_cache:
                                 period_cache[period] = {}
-                            for key in ['market_cap', 'non_fq_price', 'total_shares', 'depreciation_amortization', 'maintenance_capex', 'expansion_capex', 'shareholder_earnings']:
-                                if item.get(key) is not None and period_cache[period].get(key) is None:
-                                    period_cache[period][key] = item[key]
+                            for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                                val = item.get(key)
+                                if val is not None:
+                                    period_cache[period][key] = val
                 except:
                     pass
+            
+            if record.stock_name:
+                total_data['stock_name'] = record.stock_name
+            if record.total_net_profit is not None:
+                total_data['total_net_profit'] = record.total_net_profit
+            if record.total_dividend is not None:
+                total_data['total_dividend'] = record.total_dividend
+            if record.total_retained_earnings is not None:
+                total_data['total_retained_earnings'] = record.total_retained_earnings
+            if record.start_market_cap is not None:
+                total_data['start_market_cap'] = record.start_market_cap
+            if record.start_fq_price is not None:
+                total_data['start_fq_price'] = record.start_fq_price
+            if record.start_fq_date is not None:
+                total_data['start_fq_date'] = record.start_fq_date
         
-        result = {
-            "stock_code": code,
-            "stock_name": all_cached_records[0].stock_name if all_cached_records else code,
-            "years": years,
-            "yearly_data": list(period_cache.values()),
-            "from_cache": True
-        }
+        db.close()
         
-        print(f'[API] buffett_valuation_cached found: {code}, merged {len(period_cache)} periods')
-        return jsonify(result)
+        if not period_cache:
+            print(f'[API] buffett_valuation_cached no yearly data: {code}')
+            return jsonify({"from_cache": False})
+        
+        current_year = datetime.now().year
+        start_year = current_year - years
+        end_year = current_year - 1
+        
+        needed_periods = [f"{year}-12-31" for year in range(start_year, end_year + 1)]
+        
+        all_periods_in_cache = all(period in period_cache for period in needed_periods)
+        
+        if all_periods_in_cache:
+            yearly_data = [period_cache[period] for period in needed_periods]
+            
+            total_net_profit = sum(item.get('net_profit', 0) for item in yearly_data)
+            total_dividend = sum(item.get('dividend', 0) for item in yearly_data)
+            total_retained_earnings = sum(item.get('retained_earnings', 0) for item in yearly_data)
+            
+            first_item = yearly_data[0] if yearly_data else {}
+            start_market_cap = first_item.get('market_cap')
+            
+            start_fq_price = None
+            start_fq_date = None
+            
+            for record in all_cached_records:
+                if record.start_year == str(start_year) and record.end_year == str(end_year):
+                    if record.start_fq_price is not None:
+                        start_fq_price = record.start_fq_price
+                        start_fq_date = record.start_fq_date
+                    if record.start_market_cap is not None:
+                        start_market_cap = record.start_market_cap
+                    break
+            
+            result = {
+                "stock_code": code,
+                "stock_name": total_data.get('stock_name', code),
+                "years": years,
+                "start_year": str(start_year),
+                "end_year": str(end_year),
+                "yearly_data": yearly_data,
+                "total_net_profit": total_net_profit,
+                "total_dividend": total_dividend,
+                "total_retained_earnings": total_retained_earnings,
+                "start_market_cap": start_market_cap,
+                "start_fq_price": start_fq_price,
+                "start_fq_date": start_fq_date,
+                "current_market_cap": None,
+                "current_fq_price": None,
+                "current_fq_date": None,
+                "market_cap_growth": None,
+                "retained_growth_rate": None,
+                "from_cache": True
+            }
+            
+            print(f'[API] buffett_valuation_cached full cache hit: {code}, {start_year}-{end_year}')
+            return jsonify(result)
+        else:
+            print(f'[API] buffett_valuation_cached partial cache: {code}, missing periods')
+            return jsonify({"from_cache": False})
     except Exception as e:
         print(f'[API] buffett_valuation_cached error: {e}')
         return jsonify({"from_cache": False})
 
+
+@app.route("/api/buffett_valuation/current_market", methods=["GET"])
+def api_buffett_valuation_current_market():
+    try:
+        code = request.args.get("code", "").strip()
+        start_year = request.args.get("start_year", "")
+        end_year = request.args.get("end_year", "")
+        
+        print(f'[API] buffett_valuation_current_market request: code={code}, start_year={start_year}, end_year={end_year}')
+        
+        if not code:
+            return jsonify({"error": "请输入股票代码"}), 400
+        if not code.isdigit() or len(code) != 6:
+            return jsonify({"error": "请输入6位数字的股票代码"}), 400
+        
+        from glod.services.buffett_valuation_service import BuffettValuationService
+        service = BuffettValuationService()
+        
+        fq_close_dict = service._fetch_fq_price_data(code)
+        
+        start_fq_price = None
+        start_fq_date = None
+        
+        if start_year and end_year and fq_close_dict:
+            start_next_year = int(start_year) + 1
+            start_date = pd.Timestamp(f"{start_next_year}-05-01")
+            sorted_dates = sorted(fq_close_dict.keys())
+            start_price = None
+            start_price_date = None
+            for d in reversed(sorted_dates):
+                if d <= start_date:
+                    start_price = fq_close_dict[d]
+                    start_price_date = d
+                    break
+            start_fq_price = start_price
+            start_fq_date = str(start_price_date) if start_price_date else None
+        
+        today = pd.Timestamp.now().normalize()
+        sorted_dates = sorted(fq_close_dict.keys())
+        current_price = None
+        current_date = None
+        for d in reversed(sorted_dates):
+            if d <= today:
+                current_price = fq_close_dict[d]
+                current_date = d
+                break
+        
+        shares_data = service._fetch_total_shares_data(code, [])
+        print(f'[API] _fetch_total_shares_data 返回值: {shares_data}')
+        
+        shares = None
+        if shares_data:
+            shares = list(shares_data.values())[0]
+        
+        start_market_cap = None
+        if start_fq_price and start_fq_price > 0 and shares and shares > 0:
+            start_market_cap = start_fq_price * shares / 100000000
+            print(f'[API] 起始市值计算: start_fq_price={start_fq_price}, shares={shares}, start_market_cap={start_market_cap}')
+        
+        current_market_cap = None
+        if current_price and current_price > 0 and shares and shares > 0:
+            current_market_cap = current_price * shares / 100000000
+            print(f'[API] 当前市值计算: current_price={current_price}, shares={shares}, current_market_cap={current_market_cap}')
+        
+        result = {
+            "start_fq_price": start_fq_price,
+            "start_fq_date": start_fq_date,
+            "start_market_cap": start_market_cap,
+            "current_fq_price": current_price,
+            "current_fq_date": str(current_date) if current_date else None,
+            "current_market_cap": current_market_cap
+        }
+        
+        print(f'[API] buffett_valuation_current_market response: {result}')
+        return jsonify(result)
+    except Exception as e:
+        print(f'[API] buffett_valuation_current_market error: {e}')
+        return jsonify({"error": str(e)}), 500
+
+
+def _truncate_date(date_str):
+    if date_str:
+        if isinstance(date_str, str):
+            return date_str.split(' ')[0]
+        return str(date_str).split(' ')[0]
+    return None
 
 @app.route("/api/buffett_valuation/save", methods=["POST"])
 def api_buffett_valuation_save():
@@ -2737,19 +2911,28 @@ def api_buffett_valuation_save():
         if not data or 'stock_code' not in data or 'years' not in data:
             return jsonify({"error": "缺少必要参数"}), 400
         
+        current_user = _current_user()
+        if not current_user:
+            return jsonify({"error": "请先登录后再保存数据"}), 401
+        
         from glod.models import BuffettValuation, SessionLocal
-        from sqlalchemy import text
         import json
         from datetime import datetime
         
         db = SessionLocal()
         
+        user_id = current_user.id
+        
         cached_data = db.query(BuffettValuation).filter(
             BuffettValuation.stock_code == data['stock_code'],
-            BuffettValuation.years == data['years']
+            BuffettValuation.years == data['years'],
+            BuffettValuation.user_id == user_id
         ).first()
         
         yearly_data_json = json.dumps(data.get('yearly_data', []), ensure_ascii=False)
+        
+        start_fq_date = _truncate_date(data.get('start_fq_date'))
+        current_fq_date = _truncate_date(data.get('current_fq_date'))
         
         if cached_data:
             cached_data.stock_name = data.get('stock_name')
@@ -2758,15 +2941,20 @@ def api_buffett_valuation_save():
             cached_data.total_dividend = data.get('total_dividend')
             cached_data.total_retained_earnings = data.get('total_retained_earnings')
             cached_data.start_market_cap = data.get('start_market_cap')
+            cached_data.start_fq_price = data.get('start_fq_price')
+            cached_data.start_fq_date = start_fq_date
             cached_data.current_market_cap = data.get('current_market_cap')
+            cached_data.current_fq_price = data.get('current_fq_price')
+            cached_data.current_fq_date = current_fq_date
             cached_data.market_cap_growth = data.get('market_cap_growth')
             cached_data.retained_growth_rate = data.get('retained_growth_rate')
             cached_data.start_year = data.get('start_year')
             cached_data.end_year = data.get('end_year')
             cached_data.updated_at = datetime.now().date()
-            print(f'[API] buffett_valuation_save updated: {data["stock_code"]}')
+            print(f'[API] buffett_valuation_save updated: {data["stock_code"]} (user_id={user_id})')
         else:
             new_record = BuffettValuation(
+                user_id=user_id,
                 stock_code=data['stock_code'],
                 stock_name=data.get('stock_name'),
                 years=data['years'],
@@ -2775,7 +2963,11 @@ def api_buffett_valuation_save():
                 total_dividend=data.get('total_dividend'),
                 total_retained_earnings=data.get('total_retained_earnings'),
                 start_market_cap=data.get('start_market_cap'),
+                start_fq_price=data.get('start_fq_price'),
+                start_fq_date=start_fq_date,
                 current_market_cap=data.get('current_market_cap'),
+                current_fq_price=data.get('current_fq_price'),
+                current_fq_date=current_fq_date,
                 market_cap_growth=data.get('market_cap_growth'),
                 retained_growth_rate=data.get('retained_growth_rate'),
                 start_year=data.get('start_year'),
@@ -6158,6 +6350,7 @@ def _fetch_financial_data(code_list, years=5):
                         '负债合计': '负债合计',
                         '所有者权益（或股东权益）合计': '所有者权益（或股东权益）合计',
                         '归属于母公司所有者权益合计': '归属于母公司所有者权益合计',
+                        '实收资本（或股本）': '实收资本（或股本）',
                         '流动资产合计': '流动资产合计',
                         '非流动资产合计': '非流动资产合计',
                         '流动负债合计': '流动负债合计',
@@ -6292,13 +6485,107 @@ def _fetch_financial_data(code_list, years=5):
             growth_data['ROE'] = roe_data
             
             dividend_data = {}
-            for period in annual_periods:
-                dividend = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
-                cashflow = cashflow_data.get('经营活动产生的现金流量净额', {}).get(period)
-                if cashflow is not None and cashflow != 0:
-                    dividend_data[period] = (dividend / cashflow * 100) if dividend else 0
+            try:
+                import akshare as ak
+                div_df = ak.stock_dividend_cninfo(symbol=code)
+                if div_df is not None and len(div_df) > 0:
+                    total_shares = None
+                    try:
+                        df_info = ak.stock_individual_info_em(symbol=code)
+                        if df_info is not None and len(df_info) > 0:
+                            shares_val = df_info.get('总股本', 0)
+                            if shares_val and not pd.isna(shares_val):
+                                s = str(shares_val).strip()
+                                if '亿' in s:
+                                    total_shares = float(s.replace('亿', '').replace(',', '')) * 100000000
+                                elif '万' in s:
+                                    total_shares = float(s.replace('万', '').replace(',', '')) * 10000
+                                else:
+                                    total_shares = float(s.replace(',', ''))
+                    except Exception:
+                        pass
+                    
+                    if total_shares is None:
+                        try:
+                            df_spot = ak.stock_zh_a_spot_em()
+                            mask = df_spot['代码'] == code
+                            if mask.any():
+                                row = df_spot[mask].iloc[0]
+                                shares_val = row.get('总股本', row.get('流通股本', 0))
+                                if shares_val and not pd.isna(shares_val):
+                                    shares_float = float(shares_val)
+                                    if shares_float > 0:
+                                        total_shares = shares_float * 100000000
+                        except Exception:
+                            pass
+                    
+                    if total_shares is None and balance_data:
+                        for period in annual_periods:
+                            capital_val = balance_data.get('实收资本（或股本）', {}).get(period)
+                            if capital_val and capital_val > 0:
+                                total_shares = capital_val
+                                break
+                    
+                    div_by_year = {}
+                    for _, row in div_df.iterrows():
+                        report_year_val = row.get('报告时间', row.get('report_year', row.get('year', '')))
+                        if report_year_val:
+                            try:
+                                report_year_str = str(report_year_val)
+                                if '年报' in report_year_str:
+                                    report_year = report_year_str.replace('年报', '')[:4]
+                                elif '三季报' in report_year_str:
+                                    report_year = report_year_str.replace('三季报', '')[:4]
+                                else:
+                                    report_year = report_year_str[:4]
+                                per_share_div = float(row.get('派息比例', row.get('per_share_dividend', row.get('dividend_per_share', 0))))
+                                if per_share_div > 0:
+                                    if report_year not in div_by_year:
+                                        div_by_year[report_year] = 0
+                                    div_by_year[report_year] += per_share_div / 10
+                            except Exception:
+                                pass
+                    
+                    for period in annual_periods:
+                        year = period[:4]
+                        yearly_dividend = div_by_year.get(year, 0)
+                        if yearly_dividend > 0:
+                            period_shares = None
+                            if balance_data:
+                                period_shares = balance_data.get('实收资本（或股本）', {}).get(period)
+                            if period_shares is None and total_shares:
+                                period_shares = total_shares
+                            if period_shares and period_shares > 0:
+                                yearly_dividend_total = yearly_dividend * period_shares
+                                np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
+                                if np is not None and np != 0:
+                                    dividend_data[period] = (yearly_dividend_total / np * 100)
+                                else:
+                                    dividend_data[period] = None
+                            else:
+                                dividend_data[period] = None
+                        else:
+                            dividend_data[period] = None
                 else:
-                    dividend_data[period] = None
+                    raise Exception('无分红数据')
+            except Exception as e:
+                print(f'[API] stock_dividend_cninfo({code}) 失败，使用现金流数据: {e}')
+                for period in annual_periods:
+                    dividend_total = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
+                    financial_expense = income_data.get('财务费用', {}).get(period)
+                    
+                    if financial_expense is None or financial_expense <= 0:
+                        financial_expense = 0
+                    
+                    dividend_only = dividend_total - financial_expense if dividend_total else 0
+                    if dividend_only < 0:
+                        dividend_only = dividend_total if dividend_total else 0
+                    
+                    np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
+                    if np is not None and np != 0 and dividend_only > 0:
+                        dividend_data[period] = (dividend_only / np * 100)
+                    else:
+                        dividend_data[period] = None
             growth_data['分红率'] = dividend_data
             
             display_periods = annual_periods[:years]

@@ -209,6 +209,25 @@
     transform: none;
   }
 
+  .refresh-btn {
+    width: 100%;
+    height: 40px;
+    margin-top: 10px;
+    background: #6c757d;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .refresh-btn:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+  }
+
   .save-btn {
     width: 100%;
     padding: 12px;
@@ -926,6 +945,7 @@
             </div>
 
             <button class="submit-btn" id="submit-btn">开始估值</button>
+            <button class="refresh-btn" id="refresh-btn" style="display:none;">刷新数据</button>
 
             <div class="error-msg" id="error-msg"></div>
 
@@ -1040,24 +1060,29 @@
     }
     
     var items = [
-      { label: '起始年份', value: data.start_year || '-' },
-      { label: '截止年份', value: data.end_year || '-' },
-      { label: '起始后复权价', value: formatPrice(data.start_fq_price) + (data.start_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.start_fq_date + ')</span>' : '') },
-      { label: '当前后复权价', value: formatPrice(data.current_fq_price) + (data.current_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.current_fq_date + ')</span>' : '') },
-      { label: '股价涨幅', value: formatPercent(priceIncrease) },
-      { label: '总分红', value: formatNumber(data.total_dividend) },
-      { label: '总留存收益', value: formatNumber(data.total_retained_earnings) },
-      { label: '起始市值（后复权）', value: formatNumber(data.start_market_cap) },
-      { label: '当前市值（后复权）', value: formatNumber(data.current_market_cap) },
-      { label: '市值增长', value: formatNumber(data.market_cap_growth) },
-      { label: '市值涨幅', value: formatPercent(marketCapIncrease) },
-      { label: '留存比值', value: formatPercent(data.retained_growth_rate), highlight: true }
+      { label: '起始年份', value: data.start_year || '-', id: 'summary-start-year' },
+      { label: '截止年份', value: data.end_year || '-', id: 'summary-end-year' },
+      { label: '起始后复权价', value: formatPrice(data.start_fq_price) + (data.start_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.start_fq_date + ')</span>' : ''), id: 'summary-start-fq-price' },
+      { label: '当前后复权价', value: formatPrice(data.current_fq_price) + (data.current_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.current_fq_date + ')</span>' : ''), id: 'summary-current-fq-price' },
+      { label: '股价涨幅', value: formatPercent(priceIncrease), id: 'summary-price-increase' },
+      { label: '总分红', value: formatNumber(data.total_dividend), id: 'summary-total-dividend' },
+      { label: '总留存收益', value: formatNumber(data.total_retained_earnings), id: 'summary-total-retained' },
+      { label: '起始市值（后复权）', value: formatNumber(data.start_market_cap), id: 'summary-start-market-cap' },
+      { label: '当前市值（后复权）', value: formatNumber(data.current_market_cap), id: 'summary-current-market-cap' },
+      { label: '市值增长', value: formatNumber(data.market_cap_growth), id: 'summary-market-cap-growth' },
+      { label: '市值涨幅', value: formatPercent(marketCapIncrease), id: 'summary-market-cap-increase' },
+      { label: '留存比值', value: formatPercent(data.retained_growth_rate), highlight: true, id: 'summary-retained-growth-rate' }
     ];
     
     items.forEach(function(item) {
       var itemDiv = document.createElement('div');
       itemDiv.className = 'summary-item';
-      itemDiv.innerHTML = '<span class="label">' + item.label + '</span><span class="value' + (item.highlight ? ' highlight' : '') + '">' + item.value + '</span>';
+      var valueSpan = document.createElement('span');
+      valueSpan.className = 'value' + (item.highlight ? ' highlight' : '');
+      valueSpan.id = item.id;
+      valueSpan.innerHTML = item.value;
+      itemDiv.innerHTML = '<span class="label">' + item.label + '</span>';
+      itemDiv.appendChild(valueSpan);
       card.appendChild(itemDiv);
     });
     
@@ -1477,6 +1502,106 @@
     xhr.send();
   }
 
+  function updateSummaryValues(data) {
+    var priceIncrease = 0;
+    if (data.start_fq_price && data.start_fq_price > 0 && data.current_fq_price) {
+      priceIncrease = ((data.current_fq_price - data.start_fq_price) / data.start_fq_price) * 100;
+    }
+    
+    var marketCapIncrease = 0;
+    if (data.start_market_cap && data.start_market_cap > 0 && data.current_market_cap) {
+      marketCapIncrease = ((data.current_market_cap - data.start_market_cap) / data.start_market_cap) * 100;
+    }
+    
+    var startFqPriceEl = document.getElementById('summary-start-fq-price');
+    if (startFqPriceEl && data.start_fq_price !== null && data.start_fq_price !== undefined) {
+      startFqPriceEl.innerHTML = formatPrice(data.start_fq_price) + (data.start_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.start_fq_date + ')</span>' : '');
+    }
+    
+    var currentFqPriceEl = document.getElementById('summary-current-fq-price');
+    if (currentFqPriceEl) {
+      currentFqPriceEl.innerHTML = formatPrice(data.current_fq_price) + (data.current_fq_date ? '<span style="font-size:12px;color:#999;margin-left:4px;">(' + data.current_fq_date + ')</span>' : '');
+    }
+    
+    var priceIncreaseEl = document.getElementById('summary-price-increase');
+    if (priceIncreaseEl) {
+      priceIncreaseEl.innerHTML = formatPercent(priceIncrease);
+    }
+    
+    var startMarketCapEl = document.getElementById('summary-start-market-cap');
+    if (startMarketCapEl && data.start_market_cap !== null && data.start_market_cap !== undefined) {
+      startMarketCapEl.innerHTML = formatNumber(data.start_market_cap);
+    }
+    
+    var currentMarketCapEl = document.getElementById('summary-current-market-cap');
+    if (currentMarketCapEl) {
+      currentMarketCapEl.innerHTML = formatNumber(data.current_market_cap);
+    }
+    
+    var marketCapGrowthEl = document.getElementById('summary-market-cap-growth');
+    if (marketCapGrowthEl) {
+      marketCapGrowthEl.innerHTML = formatNumber(data.market_cap_growth);
+    }
+    
+    var marketCapIncreaseEl = document.getElementById('summary-market-cap-increase');
+    if (marketCapIncreaseEl) {
+      marketCapIncreaseEl.innerHTML = formatPercent(marketCapIncrease);
+    }
+    
+    var retainedGrowthRateEl = document.getElementById('summary-retained-growth-rate');
+    if (retainedGrowthRateEl) {
+      retainedGrowthRateEl.innerHTML = formatPercent(data.retained_growth_rate);
+    }
+  }
+
+  function queryCurrentMarketData(code, startYear, endYear) {
+    var url = '/api/buffett_valuation/current_market?code=' + encodeURIComponent(code);
+    if (startYear) {
+      url += '&start_year=' + encodeURIComponent(startYear);
+    }
+    if (endYear) {
+      url += '&end_year=' + encodeURIComponent(endYear);
+    }
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (currentData) {
+              if (data.start_fq_price !== null && data.start_fq_price !== undefined) {
+                currentData.start_fq_price = data.start_fq_price;
+                currentData.start_fq_date = data.start_fq_date;
+              }
+              if (data.start_market_cap !== null && data.start_market_cap !== undefined) {
+                currentData.start_market_cap = data.start_market_cap;
+              }
+              if (data.current_fq_price !== null && data.current_fq_price !== undefined) {
+                currentData.current_fq_price = data.current_fq_price;
+                currentData.current_fq_date = data.current_fq_date;
+                currentData.current_market_cap = data.current_market_cap;
+              }
+              
+              if (currentData.start_market_cap !== null && currentData.start_market_cap !== undefined && currentData.current_market_cap !== null && currentData.current_market_cap !== undefined) {
+                currentData.market_cap_growth = currentData.current_market_cap - currentData.start_market_cap;
+                if (currentData.total_retained_earnings !== null && currentData.total_retained_earnings !== undefined && currentData.total_retained_earnings !== 0) {
+                  currentData.retained_growth_rate = currentData.market_cap_growth / currentData.total_retained_earnings * 100;
+                }
+              }
+              
+              updateSummaryValues(currentData);
+            }
+          } catch (e) {
+            console.log('获取当前市场数据失败：' + e.message);
+          }
+        }
+      }
+    };
+    xhr.send();
+  }
+
   submitBtn.addEventListener('click', function() {
     if (isSubmitting) {
       return;
@@ -1503,66 +1628,72 @@
     }
 
     queryCachedData(code, selectedYears, function(fromCache, cachedData) {
-      var cachedPeriods = {};
-      if (fromCache && cachedData && cachedData.yearly_data) {
-        for (var i = 0; i < cachedData.yearly_data.length; i++) {
-          var item = cachedData.yearly_data[i];
-          if (item.period) {
-            cachedPeriods[item.period] = item;
-          }
-        }
-      }
-      
-      loading.textContent = '正在获取财务数据...';
-      queryRemoteData(code, selectedYears, function(error, data) {
-        isSubmitting = false;
-        submitBtn.disabled = false;
-        loading.style.display = 'none';
-
-        if (error) {
-          showError(error);
-        } else if (data.error) {
-          showError(data.error);
-        } else {
-          if (Object.keys(cachedPeriods).length > 0) {
-            for (var i = 0; i < data.yearly_data.length; i++) {
-              var item = data.yearly_data[i];
-              if (item.period && cachedPeriods[item.period]) {
-                var cachedItem = cachedPeriods[item.period];
-                if (cachedItem.market_cap !== null && cachedItem.market_cap !== undefined) {
-                  item.market_cap = cachedItem.market_cap;
-                }
-                if (cachedItem.non_fq_price !== null && cachedItem.non_fq_price !== undefined) {
-                  item.non_fq_price = cachedItem.non_fq_price;
-                }
-                if (cachedItem.total_shares !== null && cachedItem.total_shares !== undefined) {
-                  item.total_shares = cachedItem.total_shares;
-                }
-                if (cachedItem.depreciation_amortization !== null && cachedItem.depreciation_amortization !== undefined) {
-                  item.depreciation_amortization = cachedItem.depreciation_amortization;
-                }
-                if (cachedItem.maintenance_capex !== null && cachedItem.maintenance_capex !== undefined) {
-                  item.maintenance_capex = cachedItem.maintenance_capex;
-                }
-                if (cachedItem.expansion_capex !== null && cachedItem.expansion_capex !== undefined) {
-                  item.expansion_capex = cachedItem.expansion_capex;
-                }
-                if (cachedItem.shareholder_earnings !== null && cachedItem.shareholder_earnings !== undefined) {
-                  item.shareholder_earnings = cachedItem.shareholder_earnings;
-                }
-              }
-            }
-            showToast('已合并缓存数据');
-          }
-          
-          renderResult(data);
+      if (fromCache && cachedData && cachedData.yearly_data && cachedData.yearly_data.length > 0) {
+        loading.textContent = '正在加载缓存数据...';
+        setTimeout(function() {
+          isSubmitting = false;
+          submitBtn.disabled = false;
+          loading.style.display = 'none';
+          renderResult(cachedData);
           resultSection.classList.add('show');
           resultContent.style.display = 'block';
-          showToast('估值计算完成');
-        }
-      });
+          currentData = cachedData;
+          document.getElementById('refresh-btn').style.display = 'block';
+          showToast('已加载缓存数据');
+          queryCurrentMarketData(code, cachedData.start_year, cachedData.end_year);
+        }, 500);
+      } else {
+        doQueryRemoteData(code, selectedYears);
+      }
     });
   });
+
+  document.getElementById('refresh-btn').addEventListener('click', function() {
+    if (isSubmitting) {
+      return;
+    }
+
+    var code = stockInput.value.trim();
+    if (!code) {
+      showError('请输入股票代码');
+      return;
+    }
+
+    isSubmitting = true;
+    document.getElementById('refresh-btn').disabled = true;
+    errorMsg.classList.remove('show');
+    resultContent.style.display = 'none';
+    loading.style.display = 'block';
+
+    if (currentXhr) {
+      currentXhr.abort();
+    }
+
+    doQueryRemoteData(code, selectedYears);
+  });
+
+  function doQueryRemoteData(code, years) {
+    loading.textContent = '正在获取财务数据...';
+    queryRemoteData(code, years, function(error, data) {
+      isSubmitting = false;
+      submitBtn.disabled = false;
+      document.getElementById('refresh-btn').disabled = false;
+      loading.style.display = 'none';
+
+      if (error) {
+        showError(error);
+      } else if (data.error) {
+        showError(data.error);
+      } else {
+        renderResult(data);
+        resultSection.classList.add('show');
+        resultContent.style.display = 'block';
+        currentData = data;
+        document.getElementById('refresh-btn').style.display = 'block';
+        showToast('已获取最新数据');
+      }
+    });
+  }
 
   window.addEventListener('scroll', function() {
     if (window.scrollY > 300) {

@@ -167,7 +167,7 @@ class BuffettValuationService:
             except Exception:
                 return None
         
-        def try_api(max_retries=3, delay=2):
+        def try_api(max_retries=1, delay=1):
             for attempt in range(max_retries):
                 try:
                     df_info = ak.stock_individual_info_em(symbol=code)
@@ -176,49 +176,52 @@ class BuffettValuationService:
                         if shares_val and not pd.isna(shares_val):
                             parsed_val = parse_shares_value(shares_val)
                             if parsed_val is not None and parsed_val > 0 and parsed_val < 1e18:
-                                print(f'  [buffett] stock_individual_info_em 获取总股本成功(第{attempt+1}次): {parsed_val}')
+                                print(f'  [buffett] stock_individual_info_em 获取总股本成功: {parsed_val}')
                                 return parsed_val
                 except Exception as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(delay)
-                    else:
-                        print(f'  [buffett] stock_individual_info_em({code}) 失败(重试{max_retries}次): {e}')
+                    print(f'  [buffett] stock_individual_info_em({code}) 失败: {e}')
             return None
         
         shares_from_info = try_api()
         if shares_from_info:
-            for period in annual_periods:
-                total_shares_data[period] = shares_from_info
+            if annual_periods:
+                for period in annual_periods:
+                    total_shares_data[period] = shares_from_info
+            else:
+                from datetime import datetime
+                current_year = datetime.now().year
+                total_shares_data[f"{current_year}-12-31"] = shares_from_info
             return total_shares_data
         
-        def try_spot_api(max_retries=3, delay=2):
-            for attempt in range(max_retries):
-                try:
-                    df_spot = ak.stock_zh_a_spot_em()
-                    mask = df_spot['代码'] == code
-                    if mask.any():
-                        row = df_spot[mask].iloc[0]
-                        shares_val = row.get('总股本', row.get('流通股本', 0))
-                        if shares_val and not pd.isna(shares_val):
-                            try:
-                                shares_float = float(shares_val)
-                                if shares_float > 0:
-                                    shares_in_shares = shares_float * 100000000
-                                    print(f'  [buffett] stock_zh_a_spot_em 获取总股本成功(第{attempt+1}次): {shares_in_shares}')
-                                    return shares_in_shares
-                            except Exception:
-                                pass
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(delay)
-                    else:
-                        print(f'  [buffett] stock_zh_a_spot_em({code}) 失败(重试{max_retries}次): {e}')
+        def try_spot_api():
+            try:
+                df_spot = ak.stock_zh_a_spot_em()
+                mask = df_spot['代码'] == code
+                if mask.any():
+                    row = df_spot[mask].iloc[0]
+                    shares_val = row.get('总股本', row.get('流通股本', 0))
+                    if shares_val and not pd.isna(shares_val):
+                        try:
+                            shares_float = float(shares_val)
+                            if shares_float > 0:
+                                shares_in_shares = shares_float * 100000000
+                                print(f'  [buffett] stock_zh_a_spot_em 获取总股本成功: {shares_in_shares}')
+                                return shares_in_shares
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f'  [buffett] stock_zh_a_spot_em({code}) 失败: {e}')
             return None
         
         shares_from_spot = try_spot_api()
         if shares_from_spot:
-            for period in annual_periods:
-                total_shares_data[period] = shares_from_spot
+            if annual_periods:
+                for period in annual_periods:
+                    total_shares_data[period] = shares_from_spot
+            else:
+                from datetime import datetime
+                current_year = datetime.now().year
+                total_shares_data[f"{current_year}-12-31"] = shares_from_spot
             return total_shares_data
         
         if not total_shares_data:
@@ -233,7 +236,10 @@ class BuffettValuationService:
                                 try:
                                     shares_float = float(shares_val)
                                     if shares_float > 0 and shares_float < 1e18:
-                                        total_shares_data[period] = shares_float
+                                        if shares_float < 1000:
+                                            total_shares_data[period] = shares_float * 100000000
+                                        else:
+                                            total_shares_data[period] = shares_float
                                 except Exception:
                                     pass
                 print(f'  [buffett] stock_financial_benefit_ths 获取到 {len(total_shares_data)} 条总股本记录')
@@ -312,7 +318,7 @@ class BuffettValuationService:
             date_format = kwargs.pop('date_format', 'YYYY-MM-DD')
             has_period = kwargs.pop('has_period', True)
             
-            for retry in range(3):
+            for retry in range(2):
                 try:
                     if has_period:
                         df_price = func(*args, **kwargs)
@@ -327,22 +333,12 @@ class BuffettValuationService:
                         return True
                 except Exception as e:
                     print(f'  [buffett] {desc} 第{retry+1}次失败: {e}')
-                    if retry < 2:
-                        time.sleep(random.uniform(3, 6))
+                    if retry < 1:
+                        time.sleep(random.uniform(1, 2))
             return False
         
-        try_fetch(ak.stock_zh_a_hist, code, period="daily", 
-                  start_date="2000-01-01", end_date=time.strftime("%Y-%m-%d"), adjust="",
-                  desc="东财未复权价格", date_format="YYYY-MM-DD", has_period=True)
-        
-        if not non_fq_close_dict:
-            code_sina = add_suffix(code)
-            try_fetch(ak.stock_zh_a_daily, code_sina, 
-                      desc=f"新浪未复权({code_sina})", date_format="YYYYMMDD", has_period=False)
-        
-        if not non_fq_close_dict:
-            code_tx = add_suffix(code)
-            try_fetch(ak.stock_zh_a_hist_tx, code_tx, 
+        code_tx = add_suffix(code)
+        try_fetch(ak.stock_zh_a_hist_tx, code_tx, 
                       desc=f"腾讯未复权({code_tx})", date_format="YYYYMMDD", has_period=False)
         
         return non_fq_close_dict
@@ -363,7 +359,7 @@ class BuffettValuationService:
         
         def try_fetch(method, symbol, adjust, desc, date_format="YYYYMMDD", has_period=True):
             nonlocal fq_close_dict
-            for retry in range(3):
+            for retry in range(2):
                 try:
                     if date_format == "YYYYMMDD":
                         if has_period:
@@ -396,15 +392,14 @@ class BuffettValuationService:
                         return True
                 except Exception as e:
                     print(f'  [buffett] {desc} 第{retry+1}次失败: {e}')
-                    if retry < 2:
-                        time.sleep(random.uniform(3, 6))
+                    if retry < 1:
+                        time.sleep(random.uniform(1, 2))
             return False
         
-        try_fetch(ak.stock_zh_a_hist, code, "hfq", "东财后复权", date_format="YYYY-MM-DD", has_period=True)
+        try_fetch(ak.stock_zh_a_hist_tx, add_suffix(code), "hfq", f"腾讯后复权({add_suffix(code)})", date_format="YYYYMMDD", has_period=False)
         
         if not fq_close_dict:
-            code_tx = add_suffix(code)
-            try_fetch(ak.stock_zh_a_hist_tx, code_tx, "hfq", f"腾讯后复权({code_tx})", date_format="YYYYMMDD", has_period=False)
+            try_fetch(ak.stock_zh_a_hist, code, "hfq", "东财后复权", date_format="YYYY-MM-DD", has_period=True)
         
         if not fq_close_dict:
             code_sina = add_suffix(code)
@@ -425,6 +420,140 @@ class BuffettValuationService:
             print(f'  [buffett] 所有复权价格接口均失败，无法获取复权价格')
         
         return fq_close_dict
+
+    def _fetch_latest_non_fq_price(self, code: str):
+        """获取最新不复权收盘价（单位：元）"""
+        import akshare as ak
+        import time
+        import random
+        
+        def add_suffix(c):
+            if c.startswith('6'):
+                return 'sh' + c
+            elif c.startswith('0') or c.startswith('3'):
+                return 'sz' + c
+            return c
+        
+        try_fetch_methods = [
+            (ak.stock_zh_a_hist_tx, add_suffix(code), "", "腾讯不复权", "YYYYMMDD", False),
+            (ak.stock_zh_a_hist, code, "", "东财不复权", "YYYY-MM-DD", True),
+            (ak.stock_zh_a_daily, add_suffix(code), "", f"新浪不复权({add_suffix(code)})", "YYYYMMDD", False),
+        ]
+        
+        for method, symbol, adjust, desc, date_format, has_period in try_fetch_methods:
+            for retry in range(2):
+                try:
+                    if date_format == "YYYYMMDD":
+                        if has_period:
+                            df_kline = method(symbol=symbol, period="daily", 
+                                          start_date="20260101", 
+                                          end_date=time.strftime("%Y%m%d"), 
+                                          adjust=adjust)
+                        else:
+                            df_kline = method(symbol=symbol, 
+                                          start_date="20260101", 
+                                          end_date=time.strftime("%Y%m%d"), 
+                                          adjust=adjust)
+                    else:
+                        if has_period:
+                            df_kline = method(symbol=symbol, period="daily", 
+                                          start_date="2026-01-01", 
+                                          end_date=time.strftime("%Y-%m-%d"), 
+                                          adjust=adjust)
+                        else:
+                            df_kline = method(symbol=symbol, 
+                                          start_date="2026-01-01", 
+                                          end_date=time.strftime("%Y-%m-%d"), 
+                                          adjust=adjust)
+                    if df_kline is not None and len(df_kline) > 0:
+                        date_col = '日期' if '日期' in df_kline.columns else 'date'
+                        close_col = '收盘' if '收盘' in df_kline.columns else 'close'
+                        df_kline['日期'] = pd.to_datetime(df_kline[date_col])
+                        df_kline = df_kline.sort_values(by='日期')
+                        last_row = df_kline.iloc[-1]
+                        close_price = float(last_row[close_col])
+                        if close_price > 0:
+                            print(f'  [buffett] {desc} 获取不复权收盘价成功: {close_price}')
+                            return close_price
+                except Exception as e:
+                    print(f'  [buffett] {desc} 第{retry+1}次失败: {e}')
+                    if retry < 1:
+                        time.sleep(random.uniform(1, 2))
+        
+        return None
+
+    def _fetch_non_fq_price_at_date(self, code: str, year: str):
+        """获取指定年份的不复权收盘价（用于计算起始市值）"""
+        import akshare as ak
+        import time
+        import random
+        
+        def add_suffix(c):
+            if c.startswith('6'):
+                return 'sh' + c
+            elif c.startswith('0') or c.startswith('3'):
+                return 'sz' + c
+            return c
+        
+        try_fetch_methods = [
+            (ak.stock_zh_a_hist_tx, add_suffix(code), "", "腾讯不复权", "YYYYMMDD", False),
+            (ak.stock_zh_a_hist, code, "", "东财不复权", "YYYY-MM-DD", True),
+            (ak.stock_zh_a_daily, add_suffix(code), "", f"新浪不复权({add_suffix(code)})", "YYYYMMDD", False),
+        ]
+        
+        target_year = int(year)
+        start_date_str = f"{target_year}-01-01"
+        end_date_str = f"{target_year + 1}-12-31"
+        
+        for method, symbol, adjust, desc, date_format, has_period in try_fetch_methods:
+            for retry in range(2):
+                try:
+                    if date_format == "YYYYMMDD":
+                        start_date = start_date_str.replace('-', '')
+                        end_date = end_date_str.replace('-', '')
+                        if has_period:
+                            df_kline = method(symbol=symbol, period="daily", 
+                                          start_date=start_date, 
+                                          end_date=end_date, 
+                                          adjust=adjust)
+                        else:
+                            df_kline = method(symbol=symbol, 
+                                          start_date=start_date, 
+                                          end_date=end_date, 
+                                          adjust=adjust)
+                    else:
+                        if has_period:
+                            df_kline = method(symbol=symbol, period="daily", 
+                                          start_date=start_date_str, 
+                                          end_date=end_date_str, 
+                                          adjust=adjust)
+                        else:
+                            df_kline = method(symbol=symbol, 
+                                          start_date=start_date_str, 
+                                          end_date=end_date_str, 
+                                          adjust=adjust)
+                    if df_kline is not None and len(df_kline) > 0:
+                        date_col = '日期' if '日期' in df_kline.columns else 'date'
+                        close_col = '收盘' if '收盘' in df_kline.columns else 'close'
+                        df_kline['日期'] = pd.to_datetime(df_kline[date_col])
+                        
+                        target_date = pd.Timestamp(f"{target_year + 1}-05-01")
+                        sorted_dates = sorted(df_kline['日期'].tolist())
+                        close_price = None
+                        for d in reversed(sorted_dates):
+                            if d <= target_date:
+                                close_price = float(df_kline.loc[df_kline['日期'] == d, close_col].iloc[0])
+                                break
+                        
+                        if close_price and close_price > 0:
+                            print(f'  [buffett] {desc} 获取{year}年不复权收盘价成功: {close_price}')
+                            return close_price
+                except Exception as e:
+                    print(f'  [buffett] {desc} 获取{year}年不复权收盘价第{retry+1}次失败: {e}')
+                    if retry < 1:
+                        time.sleep(random.uniform(1, 2))
+        
+        return None
 
     def _calculate_yearly_data(self, annual_periods: list, net_profit_data: dict, 
                               div_df: pd.DataFrame, total_shares_data: dict):
@@ -534,6 +663,8 @@ class BuffettValuationService:
         print(f'  [buffett] _calculate_market_cap: start_year={start_year}, end_year={end_year}, fq_close_dict size={len(fq_close_dict)}')
         
         if start_year and end_year and fq_close_dict and total_shares_data:
+            current_shares = list(total_shares_data.values())[0]
+            
             start_next_year = int(start_year) + 1
             start_date_str = f"{start_next_year}-05-01"
             try:
@@ -547,16 +678,12 @@ class BuffettValuationService:
                         start_price_date = d
                         break
                 
-                shares_start = total_shares_data.get(f"{start_year}-12-31", 0)
-                if shares_start == 0 and len(total_shares_data) > 0:
-                    shares_start = list(total_shares_data.values())[0]
-                
                 start_fq_price = start_price
                 start_fq_date = str(start_price_date) if start_price_date else None
-                print(f'  [buffett] 起始市值计算: start_date={start_date_str}, actual_date={start_fq_date}, start_price={start_price}, shares_start={shares_start}')
+                print(f'  [buffett] 起始市值计算: start_date={start_date_str}, actual_date={start_fq_date}, start_price={start_price}, current_shares={current_shares}')
                 
-                if start_price and start_price > 0 and shares_start > 0:
-                    start_market_cap = start_price * shares_start / 100000000
+                if start_price and start_price > 0 and current_shares > 0:
+                    start_market_cap = start_price * current_shares / 100000000
                     print(f'  [buffett] 起始市值计算成功: {start_market_cap} 亿')
             except Exception as e:
                 print(f'  [buffett] 计算起始市值失败: {e}')
@@ -575,21 +702,37 @@ class BuffettValuationService:
                         current_price_date = d
                         break
                 
-                shares_current = total_shares_data.get(f"{end_year}-12-31", 0)
-                if shares_current == 0 and len(total_shares_data) > 0:
-                    shares_current = list(total_shares_data.values())[-1]
-                
                 current_fq_price = current_price
                 current_fq_date = str(current_price_date) if current_price_date else None
-                print(f'  [buffett] 当前市值计算: today={end_date_str}, actual_date={current_fq_date}, current_price={current_price}, shares_current={shares_current}')
+                print(f'  [buffett] 当前市值计算: today={end_date_str}, actual_date={current_fq_date}, current_price={current_price}, current_shares={current_shares}')
                 
-                if current_price and current_price > 0 and shares_current > 0:
-                    current_market_cap = current_price * shares_current / 100000000
-                    print(f'  [buffett] 当前市值计算成功: {current_market_cap} 亿')
+                if current_price and current_price > 0 and current_shares > 0:
+                    current_market_cap = current_price * current_shares / 100000000
+                    print(f'  [buffett] 当前市值计算成功(后复权价×总股本): {current_market_cap} 亿')
             except Exception as e:
                 print(f'  [buffett] 计算当前市值失败: {e}')
         
         return start_market_cap, current_market_cap, start_fq_price, current_fq_price, start_fq_date, current_fq_date
+
+    def _fetch_current_market_cap(self, code: str):
+        """直接从东方财富获取当前市值（单位：亿）"""
+        import akshare as ak
+        try:
+            df_spot = ak.stock_zh_a_spot_em()
+            mask = df_spot['代码'] == code
+            if mask.any():
+                row = df_spot[mask].iloc[0]
+                market_cap_val = row.get('总市值', row.get('流通市值', 0))
+                if market_cap_val and not pd.isna(market_cap_val):
+                    try:
+                        market_cap_float = float(market_cap_val)
+                        if market_cap_float > 0 and market_cap_float < 1e18:
+                            return market_cap_float
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f'  [buffett] _fetch_current_market_cap({code}) 失败: {e}')
+        return None
 
     def _calculate_growth_rates(self, start_market_cap: float, current_market_cap: float, 
                               total_retained_earnings: float):

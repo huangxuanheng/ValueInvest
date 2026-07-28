@@ -2546,26 +2546,13 @@
 
       html += `<tbody>`;
 
-      html += `<tr><td>分配股利、利润或偿付利息支付的现金</td>`;
-      stock.periods.forEach(p => {
-        const val = stock.cash_flow['分配股利、利润或偿付利息支付的现金'] && stock.cash_flow['分配股利、利润或偿付利息支付的现金'][p];
-        html += `<td class="value-num">${formatNumber(val)}</td>`;
-      });
-      html += `</tr>`;
-
-      html += `<tr><td>归属于母公司净利润</td>`;
-      stock.periods.forEach(p => {
-        const val = stock.income_statement['归属于母公司所有者的净利润'] && stock.income_statement['归属于母公司所有者的净利润'][p];
-        html += `<td class="value-num">${formatNumber(val)}</td>`;
-      });
-      html += `</tr>`;
-
       html += `<tr><td>分红率</td>`;
       stock.periods.forEach(p => {
-        const dividend = stock.cash_flow['分配股利、利润或偿付利息支付的现金'] && stock.cash_flow['分配股利、利润或偿付利息支付的现金'][p] || 0;
-        const np = stock.income_statement['归属于母公司所有者的净利润'] && stock.income_statement['归属于母公司所有者的净利润'][p] || 0;
-        if (np !== 0) {
-          const rate = (dividend / np * 100);
+        let rate = null;
+        if (stock.growth_data && stock.growth_data['分红率'] && stock.growth_data['分红率'][p] !== null && stock.growth_data['分红率'][p] !== undefined) {
+          rate = stock.growth_data['分红率'][p];
+        }
+        if (rate !== null && rate !== undefined && !isNaN(rate)) {
           html += `<td class="value-pct">${rate.toFixed(2)}%</td>`;
         } else {
           html += `<td class="value-pct">-</td>`;

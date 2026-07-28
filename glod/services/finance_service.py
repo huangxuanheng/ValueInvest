@@ -94,6 +94,7 @@ def fetch_financial_data(code_list, years=5):
                         '负债合计': '负债合计',
                         '所有者权益（或股东权益）合计': '所有者权益（或股东权益）合计',
                         '归属于母公司所有者权益合计': '归属于母公司所有者权益合计',
+                        '实收资本（或股本）': '实收资本（或股本）',
                         '流动资产合计': '流动资产合计',
                         '非流动资产合计': '非流动资产合计',
                         '流动负债合计': '流动负债合计',
@@ -247,13 +248,106 @@ def fetch_financial_data(code_list, years=5):
                 growth_data['归母净利润增长率'] = _calc_growth_rate(income_data['归属于母公司所有者的净利润'], annual_periods)
             
             dividend_data = {}
-            for period in annual_periods:
-                dividend = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
-                cashflow_val = cashflow_data.get('经营活动产生的现金流量净额', {}).get(period)
-                if cashflow_val is not None and cashflow_val != 0:
-                    dividend_data[period] = (dividend / cashflow_val * 100) if dividend else 0
+            try:
+                div_df = ak.stock_dividend_cninfo(symbol=code)
+                if div_df is not None and len(div_df) > 0:
+                    total_shares = None
+                    try:
+                        df_info = ak.stock_individual_info_em(symbol=code)
+                        if df_info is not None and len(df_info) > 0:
+                            shares_val = df_info.get('总股本', 0)
+                            if shares_val and not pd.isna(shares_val):
+                                s = str(shares_val).strip()
+                                if '亿' in s:
+                                    total_shares = float(s.replace('亿', '').replace(',', '')) * 100000000
+                                elif '万' in s:
+                                    total_shares = float(s.replace('万', '').replace(',', '')) * 10000
+                                else:
+                                    total_shares = float(s.replace(',', ''))
+                    except Exception:
+                        pass
+                    
+                    if total_shares is None:
+                        try:
+                            df_spot = ak.stock_zh_a_spot_em()
+                            mask = df_spot['代码'] == code
+                            if mask.any():
+                                row = df_spot[mask].iloc[0]
+                                shares_val = row.get('总股本', row.get('流通股本', 0))
+                                if shares_val and not pd.isna(shares_val):
+                                    shares_float = float(shares_val)
+                                    if shares_float > 0:
+                                        total_shares = shares_float * 100000000
+                        except Exception:
+                            pass
+                    
+                    if total_shares is None and balance_data:
+                        for period in annual_periods:
+                            capital_val = balance_data.get('实收资本（或股本）', {}).get(period)
+                            if capital_val and capital_val > 0:
+                                total_shares = capital_val
+                                break
+                    
+                    div_by_year = {}
+                    for _, row in div_df.iterrows():
+                        report_year_val = row.get('报告时间', row.get('report_year', row.get('year', '')))
+                        if report_year_val:
+                            try:
+                                report_year_str = str(report_year_val)
+                                if '年报' in report_year_str:
+                                    report_year = report_year_str.replace('年报', '')[:4]
+                                elif '三季报' in report_year_str:
+                                    report_year = report_year_str.replace('三季报', '')[:4]
+                                else:
+                                    report_year = report_year_str[:4]
+                                per_share_div = float(row.get('派息比例', row.get('per_share_dividend', row.get('dividend_per_share', 0))))
+                                if per_share_div > 0:
+                                    if report_year not in div_by_year:
+                                        div_by_year[report_year] = 0
+                                    div_by_year[report_year] += per_share_div / 10
+                            except Exception:
+                                pass
+                    
+                    for period in annual_periods:
+                        year = period[:4]
+                        yearly_dividend = div_by_year.get(year, 0)
+                        if yearly_dividend > 0:
+                            period_shares = None
+                            if balance_data:
+                                period_shares = balance_data.get('实收资本（或股本）', {}).get(period)
+                            if period_shares is None and total_shares:
+                                period_shares = total_shares
+                            if period_shares and period_shares > 0:
+                                yearly_dividend_total = yearly_dividend * period_shares
+                                np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
+                                if np is not None and np != 0:
+                                    dividend_data[period] = (yearly_dividend_total / np * 100)
+                                else:
+                                    dividend_data[period] = None
+                            else:
+                                dividend_data[period] = None
+                        else:
+                            dividend_data[period] = None
                 else:
-                    dividend_data[period] = None
+                    raise Exception('无分红数据')
+            except Exception as e:
+                print(f'  [finance] stock_dividend_cninfo({code}) 失败，使用现金流数据: {e}')
+                for period in annual_periods:
+                    dividend_total = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
+                    financial_expense = income_data.get('财务费用', {}).get(period)
+                    
+                    if financial_expense is None or financial_expense <= 0:
+                        financial_expense = 0
+                    
+                    dividend_only = dividend_total - financial_expense if dividend_total else 0
+                    if dividend_only < 0:
+                        dividend_only = dividend_total if dividend_total else 0
+                    
+                    np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
+                    if np is not None and np != 0 and dividend_only > 0:
+                        dividend_data[period] = (dividend_only / np * 100)
+                    else:
+                        dividend_data[period] = None
             growth_data['分红率'] = dividend_data
             
             display_periods = annual_periods[:years]

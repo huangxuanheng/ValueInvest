@@ -60,6 +60,7 @@ class DividendIndex(Base):
 class BuffettValuation(Base):
     __tablename__ = "buffett_valuations"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True, comment="关联 users.id，未登录用户为NULL")
     stock_code = Column(String(16), nullable=False, comment="股票代码 6 位")
     stock_name = Column(String(64), nullable=True, comment="股票名称")
     years = Column(Integer, nullable=False, comment="连续年限")
@@ -70,7 +71,11 @@ class BuffettValuation(Base):
     total_dividend = Column(Float, nullable=True, comment="总分红(亿)")
     total_retained_earnings = Column(Float, nullable=True, comment="总留存收益(亿)")
     start_market_cap = Column(Float, nullable=True, comment="起始市值(亿)")
+    start_fq_price = Column(Float, nullable=True, comment="起始后复权价(元)")
+    start_fq_date = Column(String(16), nullable=True, comment="起始后复权价日期")
     current_market_cap = Column(Float, nullable=True, comment="当前市值(亿)")
+    current_fq_price = Column(Float, nullable=True, comment="当前后复权价(元)")
+    current_fq_date = Column(String(16), nullable=True, comment="当前后复权价日期")
     market_cap_growth = Column(Float, nullable=True, comment="市值增长(亿)")
     retained_growth_rate = Column(Float, nullable=True, comment="留存增长率(%)")
     created_at = Column(Date, nullable=True, comment="创建日期")
@@ -96,5 +101,10 @@ DB_URL = (
     f"/{_MYSQL_DB}?charset=utf8mb4"
 )
 
-engine = create_engine(DB_URL, pool_recycle=3600)
+engine = create_engine(DB_URL, 
+                       pool_size=5,
+                       max_overflow=10,
+                       pool_recycle=3600,
+                       pool_pre_ping=True,
+                       connect_args={"connect_timeout": 5})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
