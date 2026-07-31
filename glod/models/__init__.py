@@ -78,6 +78,7 @@ class BuffettValuation(Base):
     current_fq_date = Column(String(16), nullable=True, comment="当前后复权价日期")
     market_cap_growth = Column(Float, nullable=True, comment="市值增长(亿)")
     retained_growth_rate = Column(Float, nullable=True, comment="留存增长率(%)")
+    notes = Column(Text, nullable=True, comment="备注")
     created_at = Column(Date, nullable=True, comment="创建日期")
     updated_at = Column(Date, nullable=True, comment="更新日期")
 

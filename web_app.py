@@ -208,52 +208,58 @@ def get_sqlite_engine():
     return _sqlite_engine
 
 
-def _ensure_sqlite_columns():
-    """SQLite 专属：为 Base 下所有 ORM 表，对比 PRAGMA table_info 与 ORM 列定义，
+def _ensure_db_columns():
+    """为 Base 下所有 ORM 表，对比数据库表结构与 ORM 列定义，
     对缺失的列执行 ALTER TABLE ... ADD COLUMN 补齐（所有新增列都是可空类型，
-    不会造成数据丢失）。
-    MySQL / PG 等其他方言：空操作，假设你使用正规迁移工具管理升级。"""
-    if engine.dialect.name != "sqlite":
-        return
+    不会造成数据丢失）。支持 SQLite 和 MySQL。"""
 
-    def _sa_type_to_sql(t: TypeEngine) -> str:
-        # SQLite 类型亲和度宽松，按大类映射即可
+    def _sa_type_to_sql(t: TypeEngine, is_mysql: bool) -> str:
         s = str(t).upper()
-        if "FLOAT" in s or "DOUBLE" in s or "REAL" in s or "NUMERIC" in s:
+        if "FLOAT" in s or "DOUBLE" in s or "REAL" in s or "NUMERIC" in s or "DECIMAL" in s:
             return "FLOAT"
         if "INT" in s or "BIGINT" in s:
-            return "INTEGER"
+            return "BIGINT" if is_mysql else "INTEGER"
         if "DATE" in s or "DATETIME" in s or "TIME" in s:
             return "DATE"
         if "BOOL" in s:
-            return "INTEGER"
+            return "INTEGER" if not is_mysql else "TINYINT"
         if "BLOB" in s or "BINARY" in s:
             return "BLOB"
+        if "VARCHAR" in s:
+            return "VARCHAR(512)" if is_mysql else "TEXT"
         return "TEXT"
 
-    with engine.connect() as conn:
-        trans = conn.begin()
+    _is_mysql = engine.dialect.name == "mysql"
+    _quote = "`" if _is_mysql else '"'
+
+    for mapper in Base.registry.mappers:
+        table = mapper.persist_selectable
+        tname = table.name
+        
         try:
-            for mapper in Base.registry.mappers:
-                table = mapper.persist_selectable
-                tname = table.name
-                rows = conn.execute(text(f'PRAGMA table_info("{tname}")')).fetchall()
-                existing = {r[1].lower() for r in rows}  # 第 1 列 = 列名
+            with engine.connect() as conn:
+                # 获取现有列
+                if _is_mysql:
+                    rows = conn.execute(text(f'SHOW COLUMNS FROM {_quote}{tname}{_quote}')).fetchall()
+                    existing = {r[0].lower() for r in rows}
+                else:
+                    rows = conn.execute(text(f'PRAGMA table_info("{tname}")')).fetchall()
+                    existing = {r[1].lower() for r in rows}
+                
                 for col in table.columns:
                     if col.name.lower() in existing:
                         continue
-                    sql_type = _sa_type_to_sql(col.type)
-                    ddl = f'ALTER TABLE "{tname}" ADD COLUMN "{col.name}" {sql_type}'
+                    sql_type = _sa_type_to_sql(col.type, _is_mysql)
+                    nullable = "NULL" if col.nullable else "NOT NULL DEFAULT ''"
+                    ddl = f'ALTER TABLE {_quote}{tname}{_quote} ADD COLUMN {_quote}{col.name}{_quote} {sql_type} {nullable}'
                     try:
                         conn.execute(text(ddl))
+                        conn.commit()
                         print(f"[DB][迁移] 表 {tname} 新增列: {col.name} ({sql_type})")
                     except Exception as ex:
-                        # ignore duplicate / already added on concurrent runs
                         print(f"[DB][迁移] 忽略警告：{ddl} 失败: {ex}")
-            trans.commit()
-        except Exception:
-            trans.rollback()
-            raise
+        except Exception as e:
+            print(f"[DB][迁移] 表 {tname} 检查失败: {e}")
 
 
 class PreciousMetal(Base):
@@ -296,8 +302,8 @@ def init_db():
             raise
         else:
             raise
-    if DB_URL.startswith("sqlite"):
-        _ensure_sqlite_columns()
+    # 自动检查并补齐缺失列（支持 SQLite 和 MySQL）
+    _ensure_db_columns()
     # —— 自动迁移：SQLite → MySQL（仅当 MySQL 所有存量表都空空如也，且 sqlite 文件存在时执行 1 次）——
     _try_auto_migrate_sqlite_to_mysql()
     db_path = DB_URL.split('@')[-1] if '@' in DB_URL else DB_URL
@@ -2621,6 +2627,7 @@ def api_buffett_valuation():
         
         period_cache = {}
         cached_total_data = None
+        cached_notes = ''
         
         try:
             from glod.models import BuffettValuation, SessionLocal
@@ -2645,13 +2652,16 @@ def api_buffett_valuation():
                                 if period:
                                     if period not in period_cache:
                                         period_cache[period] = {}
-                                    for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                                    for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date', 'notes']:
                                         val = item.get(key)
                                         if val is not None:
                                             period_cache[period][key] = val
                         except Exception as e:
                             print(f'[API] 解析缓存数据失败: {e}')
                             pass
+                    # 读取全局notes字段
+                    if record.notes:
+                        cached_notes = record.notes
             
             db.close()
         except Exception as db_err:
@@ -2661,14 +2671,21 @@ def api_buffett_valuation():
         service = BuffettValuationService()
         result = service.calculate(code, years)
         
+        # 只从数据库覆盖用户手动输入的字段，不覆盖系统自动计算的字段
+        # 系统自动计算的字段: non_fq_price, total_shares, market_cap, price_date
+        # 用户手动输入的字段: depreciation_amortization, maintenance_capex
         if period_cache:
             for i, item in enumerate(result['yearly_data']):
                 period = item['period']
                 if period in period_cache:
                     cached_period = period_cache[period]
-                    for key in ['year', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                    # 只覆盖用户手动输入的字段
+                    for key in ['depreciation_amortization', 'maintenance_capex', 'notes']:
                         if cached_period.get(key) is not None:
                             item[key] = cached_period[key]
+        
+        # 添加全局notes字段
+        result['notes'] = cached_notes
         
         print(f'[API] buffett_valuation response: total_net_profit={result["total_net_profit"]}, total_retained_earnings={result["total_retained_earnings"]}, start_market_cap={result["start_market_cap"]}')
         response = jsonify(result)
@@ -2693,6 +2710,7 @@ def api_buffett_valuation_cached():
     if not code.isdigit() or len(code) != 6:
         return jsonify({"error": "请输入6位数字的股票代码"}), 400
     
+    db = None
     try:
         from glod.models import BuffettValuation, SessionLocal
         import json
@@ -2727,7 +2745,7 @@ def api_buffett_valuation_cached():
                         if period:
                             if period not in period_cache:
                                 period_cache[period] = {}
-                            for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date']:
+                            for key in ['year', 'period', 'non_fq_price', 'total_shares', 'market_cap', 'net_profit', 'dividend', 'retained_earnings', 'depreciation_amortization', 'maintenance_capex', 'shareholder_earnings', 'price_date', 'notes']:
                                 val = item.get(key)
                                 if val is not None:
                                     period_cache[period][key] = val
@@ -2748,8 +2766,8 @@ def api_buffett_valuation_cached():
                 total_data['start_fq_price'] = record.start_fq_price
             if record.start_fq_date is not None:
                 total_data['start_fq_date'] = record.start_fq_date
-        
-        db.close()
+            if record.notes is not None:
+                total_data['notes'] = record.notes
         
         if not period_cache:
             print(f'[API] buffett_valuation_cached no yearly data: {code}')
@@ -2803,6 +2821,7 @@ def api_buffett_valuation_cached():
                 "current_fq_date": None,
                 "market_cap_growth": None,
                 "retained_growth_rate": None,
+                "notes": total_data.get('notes', ''),
                 "from_cache": True
             }
             
@@ -2814,26 +2833,128 @@ def api_buffett_valuation_cached():
     except Exception as e:
         print(f'[API] buffett_valuation_cached error: {e}')
         return jsonify({"from_cache": False})
+    finally:
+        if db:
+            db.close()
 
 
 @app.route("/api/buffett_valuation/current_market", methods=["GET"])
 def api_buffett_valuation_current_market():
     try:
+        import time as _time
+        _start_time = _time.time()
+        
         code = request.args.get("code", "").strip()
         start_year = request.args.get("start_year", "")
         end_year = request.args.get("end_year", "")
+        force = request.args.get("force", "0") == "1"  # 强制刷新缓存
         
-        print(f'[API] buffett_valuation_current_market request: code={code}, start_year={start_year}, end_year={end_year}')
+        print(f'[API] buffett_valuation_current_market request: code={code}, start_year={start_year}, end_year={end_year}, force={force}')
         
         if not code:
             return jsonify({"error": "请输入股票代码"}), 400
         if not code.isdigit() or len(code) != 6:
             return jsonify({"error": "请输入6位数字的股票代码"}), 400
         
-        from glod.services.buffett_valuation_service import BuffettValuationService
+        # Redis 缓存：当前市值相关数据
+        from glod.utils.redis_client import redis_client
+        
+        # 缓存键：股票代码+日期（当天数据不随查询年份变化，所有年份共用同一缓存）
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        current_cache_key = f"buffett:current_market:{code}:{today_str}"
+        
+        # 优先从 Redis 读取当前市值数据
+        if not force:
+            cached_current = redis_client.get_cache(current_cache_key)
+            if cached_current and cached_current.get("current_fq_price") and cached_current.get("current_market_cap"):
+                print(f'[Redis] 命中缓存: {current_cache_key}')
+                # 计算起始市值（如果需要）
+                start_fq_price = None
+                start_fq_date = None
+                start_market_cap = None
+                
+                if start_year and end_year:
+                    # 从缓存获取总股本
+                    shares = cached_current.get("shares")
+                    
+                    # 从缓存的 fq_data 获取起始后复权价（将字符串键转为 Timestamp 比较）
+                    fq_data = cached_current.get("fq_data")
+                    if fq_data:
+                        start_next_year = int(start_year) + 1
+                        start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                        fq_data_ts = {pd.Timestamp(k): v for k, v in fq_data.items()}
+                        sorted_dates = sorted(fq_data_ts.keys())
+                        for d in reversed(sorted_dates):
+                            if d <= start_date:
+                                start_fq_price = fq_data_ts[d]
+                                start_fq_date = str(d.date())
+                                break
+                    
+                    # 如果缓存中没有 fq_data 或无法获取起始价，远程查询（带超时）
+                    if not start_fq_price or not shares:
+                        print(f'[Redis] 缓存数据不足，远程查询补充（15秒超时）')
+                        from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
+                        service = BuffettValuationService()
+                        
+                        # 超时获取后复权价
+                        if not start_fq_price:
+                            print(f'[Redis] 开始远程获取后复权价...')
+                            fq_close_dict = _run_with_timeout(lambda: service._fetch_fq_price_data(code), 15)
+                            if fq_close_dict:
+                                start_next_year = int(start_year) + 1
+                                start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                                sorted_dates = sorted(fq_close_dict.keys())
+                                for d in reversed(sorted_dates):
+                                    if d <= start_date:
+                                        start_fq_price = fq_close_dict[d]
+                                        start_fq_date = str(d.date())
+                                        break
+                            print(f'[Redis] 后复权价获取完成: start_fq_price={start_fq_price}')
+                        
+                        # 超时获取总股本
+                        if not shares:
+                            print(f'[Redis] 开始远程获取总股本...')
+                            shares_data = _run_with_timeout(lambda: service._fetch_total_shares_data(code, []), 15)
+                            if shares_data:
+                                shares = list(shares_data.values())[0]
+                            print(f'[Redis] 总股本获取完成: shares={shares}')
+                    
+                    # 计算起始市值
+                    if start_fq_price and start_fq_price > 0 and shares and shares > 0:
+                        start_market_cap = start_fq_price * shares / 100000000
+                
+                result = {
+                    "start_fq_price": start_fq_price,
+                    "start_fq_date": start_fq_date,
+                    "start_market_cap": start_market_cap,
+                    "current_fq_price": cached_current.get("current_fq_price"),
+                    "current_fq_date": cached_current.get("current_fq_date"),
+                    "current_market_cap": cached_current.get("current_market_cap"),
+                    "from_cache": True
+                }
+                _elapsed = _time.time() - _start_time
+                print(f'[API] 缓存命中，总耗时: {_elapsed:.2f}秒')
+                return jsonify(result)
+        
+        # 远程获取最新数据（带超时限制）
+        from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
         service = BuffettValuationService()
         
-        fq_close_dict = service._fetch_fq_price_data(code)
+        # 超时获取后复权价（20秒超时）
+        print(f'[API] 开始远程获取后复权价...')
+        fq_close_dict = _run_with_timeout(lambda: service._fetch_fq_price_data(code), 20)
+        
+        if fq_close_dict is None or len(fq_close_dict) == 0:
+            print(f'[API] 后复权价获取超时或失败，跳过远程查询')
+            result = {
+                "current_fq_price": None,
+                "current_market_cap": None,
+                "error": "远程获取超时，请稍后重试",
+                "from_cache": False
+            }
+            return jsonify(result)
+        
+        print(f'[API] 后复权价获取成功: {len(fq_close_dict)}条数据')
         
         start_fq_price = None
         start_fq_date = None
@@ -2862,7 +2983,9 @@ def api_buffett_valuation_current_market():
                 current_date = d
                 break
         
-        shares_data = service._fetch_total_shares_data(code, [])
+        # 超时获取总股本（20秒超时）
+        print(f'[API] 开始远程获取总股本...')
+        shares_data = _run_with_timeout(lambda: service._fetch_total_shares_data(code, []), 20)
         print(f'[API] _fetch_total_shares_data 返回值: {shares_data}')
         
         shares = None
@@ -2879,16 +3002,33 @@ def api_buffett_valuation_current_market():
             current_market_cap = current_price * shares / 100000000
             print(f'[API] 当前市值计算: current_price={current_price}, shares={shares}, current_market_cap={current_market_cap}')
         
+        # 缓存当前市值数据到 Redis（0点过期）
+        if current_price and current_market_cap:
+            cache_data = {
+                "current_fq_price": current_price,
+                "current_fq_date": str(current_date) if current_date else None,
+                "current_market_cap": current_market_cap,
+                "shares": shares,
+                "fq_data": {str(k): v for k, v in fq_close_dict.items()},
+                "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            # 缓存有效期到今天0点
+            ttl = redis_client.get_seconds_until_midnight()
+            if redis_client.set_cache(current_cache_key, cache_data, expire_at_midnight=True):
+                print(f'[Redis] 缓存成功: {current_cache_key}, 剩余{ttl}秒过期')
+        
         result = {
             "start_fq_price": start_fq_price,
             "start_fq_date": start_fq_date,
             "start_market_cap": start_market_cap,
             "current_fq_price": current_price,
             "current_fq_date": str(current_date) if current_date else None,
-            "current_market_cap": current_market_cap
+            "current_market_cap": current_market_cap,
+            "from_cache": False
         }
         
-        print(f'[API] buffett_valuation_current_market response: {result}')
+        _elapsed = _time.time() - _start_time
+        print(f'[API] 远程获取完成，总耗时: {_elapsed:.2f}秒')
         return jsonify(result)
     except Exception as e:
         print(f'[API] buffett_valuation_current_market error: {e}')
@@ -2904,6 +3044,7 @@ def _truncate_date(date_str):
 
 @app.route("/api/buffett_valuation/save", methods=["POST"])
 def api_buffett_valuation_save():
+    db = None
     try:
         data = request.get_json()
         print(f'[API] buffett_valuation_save request received')
@@ -2934,6 +3075,8 @@ def api_buffett_valuation_save():
         start_fq_date = _truncate_date(data.get('start_fq_date'))
         current_fq_date = _truncate_date(data.get('current_fq_date'))
         
+        notes_content = data.get('notes', '')
+        
         if cached_data:
             cached_data.stock_name = data.get('stock_name')
             cached_data.yearly_data = yearly_data_json
@@ -2950,6 +3093,7 @@ def api_buffett_valuation_save():
             cached_data.retained_growth_rate = data.get('retained_growth_rate')
             cached_data.start_year = data.get('start_year')
             cached_data.end_year = data.get('end_year')
+            cached_data.notes = notes_content
             cached_data.updated_at = datetime.now().date()
             print(f'[API] buffett_valuation_save updated: {data["stock_code"]} (user_id={user_id})')
         else:
@@ -2972,6 +3116,7 @@ def api_buffett_valuation_save():
                 retained_growth_rate=data.get('retained_growth_rate'),
                 start_year=data.get('start_year'),
                 end_year=data.get('end_year'),
+                notes=notes_content,
                 created_at=datetime.now().date(),
                 updated_at=datetime.now().date()
             )
@@ -2982,7 +3127,12 @@ def api_buffett_valuation_save():
         return jsonify({"success": True})
     except Exception as e:
         print(f'[API] buffett_valuation_save error: {e}')
+        if db:
+            db.rollback()
         return jsonify({"error": str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 @app.route("/login")
 def page_login():

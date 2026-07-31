@@ -2,8 +2,48 @@ import pandas as pd
 import requests
 import os
 import re
+import socket
+import time
+import threading
+import concurrent.futures
+from functools import wraps
 from ..utils.stock_info import fetch_sec_name
 from .finance_service import fetch_financial_data
+
+# 设置全局超时
+socket.setdefaulttimeout(30)
+
+
+def _run_with_timeout(func, timeout_seconds, *args, **kwargs):
+    """
+    使用线程强制超时运行函数。
+    如果函数执行时间超过 timeout_seconds，会返回 None。
+    注意：被超时终止的线程仍会在后台运行，但不会阻塞主流程。
+    """
+    result_holder = {'result': None, 'done': False, 'error': None}
+    
+    def _worker():
+        try:
+            result_holder['result'] = func(*args, **kwargs)
+        except Exception as e:
+            result_holder['error'] = e
+        finally:
+            result_holder['done'] = True
+    
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+    
+    if not result_holder['done']:
+        print(f'    [超时] 函数执行超过{timeout_seconds}秒，已放弃')
+        return None
+    
+    if result_holder['error']:
+        print(f'    [异常] 函数执行异常: {result_holder["error"]}')
+        return None
+    
+    return result_holder['result']
+
 
 
 class BuffettValuationService:
@@ -49,17 +89,33 @@ class BuffettValuationService:
         print(f'[buffett] 净利润数据: {list(net_profit_data.keys())}')
         print(f'[buffett] 年度报告期: {annual_periods}')
         
-        div_df = self._fetch_dividend_data(code)
+        # 从报告期中获取最早的年份作为价格数据起始年
+        price_start_year = 2015
+        if annual_periods:
+            earliest = min(pd.Timestamp(p).year for p in annual_periods)
+            price_start_year = max(earliest - 1, 2005)  # 提前一年以覆盖全年
         
-        total_shares_data = self._fetch_total_shares_data(code, annual_periods)
+        div_df = _run_with_timeout(lambda: self._fetch_dividend_data(code), 45)
+        if div_df is None:
+            div_df = pd.DataFrame()
+            print(f'[buffett] 分红数据获取超时，使用空数据')
         
-        print(f'  [buffett] total_shares_data keys: {list(total_shares_data.keys())}')
+        total_shares_data = _run_with_timeout(lambda: self._fetch_total_shares_data(code, annual_periods), 60)
+        if total_shares_data is None:
+            total_shares_data = {}
+            print(f'[buffett] 总股本数据获取超时，使用空数据')
         
-        fq_close_dict = self._fetch_fq_price_data(code)
+        fq_close_dict = _run_with_timeout(lambda: self._fetch_fq_price_data(code, price_start_year), 90)
+        if fq_close_dict is None:
+            fq_close_dict = {}
+            print(f'[buffett] 后复权价格获取超时，使用空数据')
         
-        non_fq_close_dict = self._fetch_non_fq_price_data(code)
+        non_fq_close_dict = _run_with_timeout(lambda: self._fetch_non_fq_price_data(code, price_start_year), 60)
+        if non_fq_close_dict is None:
+            non_fq_close_dict = {}
+            print(f'[buffett] 不复权价格获取超时，使用空数据')
         
-        yearly_data, total_net_profit, total_dividend, total_retained_earnings, adjusted_shares_data = \
+        yearly_data, total_net_profit, total_dividend, total_retained_earnings, _ = \
             self._calculate_yearly_data(annual_periods, net_profit_data, div_df, total_shares_data)
         
         yearly_data.sort(key=lambda x: x['year'])
@@ -67,22 +123,33 @@ class BuffettValuationService:
         start_year = yearly_data[0]['year'] if yearly_data else None
         end_year = yearly_data[-1]['year'] if yearly_data else None
         
-        yearly_market_cap, yearly_non_fq_price, yearly_price_date = self._calculate_yearly_market_cap(annual_periods, non_fq_close_dict, adjusted_shares_data)
+        # 使用原始的 total_shares_data 计算市值，而不是 adjusted_shares_data
+        yearly_market_cap, yearly_non_fq_price, yearly_price_date = self._calculate_yearly_market_cap(annual_periods, non_fq_close_dict, total_shares_data)
         
         depreciation_amortization_data = self._calculate_depreciation_amortization(annual_periods, cashflow_data)
         
         capex_data = cashflow_data.get('购建固定资产、无形资产和其他长期资产支付的现金', {})
         
-        expansion_capex_data = self._calculate_expansion_capex(code, annual_periods, balance_data)
+        expansion_capex_data = _run_with_timeout(
+            lambda: self._calculate_expansion_capex(code, annual_periods, balance_data), 
+            45
+        )
+        if expansion_capex_data is None:
+            expansion_capex_data = {}
+            print(f'[buffett] 扩张性资本支出计算超时，使用空数据')
         
-        self._supplement_data_from_pdf(code, annual_periods, cashflow_data, depreciation_amortization_data, expansion_capex_data)
+        # PDF补充数据是辅助功能，超时不阻塞主流程
+        _run_with_timeout(
+            lambda: self._supplement_data_from_pdf(code, annual_periods, cashflow_data, depreciation_amortization_data, expansion_capex_data),
+            90
+        )
         
         maintenance_capex_data = self._calculate_maintenance_capex(annual_periods, capex_data, expansion_capex_data)
         
         shareholder_earnings_data = self._calculate_shareholder_earnings(annual_periods, net_profit_data, depreciation_amortization_data, maintenance_capex_data)
         
         start_market_cap, current_market_cap, start_fq_price, current_fq_price, start_fq_date, current_fq_date = \
-            self._calculate_market_cap(start_year, end_year, fq_close_dict, adjusted_shares_data)
+            self._calculate_market_cap(start_year, end_year, fq_close_dict, total_shares_data)
         
         market_cap_growth, retained_growth_rate = \
             self._calculate_growth_rates(start_market_cap, current_market_cap, total_retained_earnings)
@@ -92,7 +159,7 @@ class BuffettValuationService:
             item['market_cap'] = yearly_market_cap.get(period)
             item['non_fq_price'] = yearly_non_fq_price.get(period)
             item['price_date'] = yearly_price_date.get(period)
-            item['total_shares'] = adjusted_shares_data.get(period)
+            item['total_shares'] = total_shares_data.get(period)
             item['depreciation_amortization'] = depreciation_amortization_data.get(period)
             item['capex'] = capex_data.get(period) / 100000000 if capex_data.get(period) else None
             item['expansion_capex'] = expansion_capex_data.get(period)
@@ -143,168 +210,136 @@ class BuffettValuationService:
         return div_df
 
     def _fetch_total_shares_data(self, code: str, annual_periods: list):
-        """获取总股本数据（股数，单位：股）"""
+        """获取总股本数据（股数，单位：股）- 顺序调用多个接口"""
         import akshare as ak
-        import time
         
-        total_shares_data = {}
+        # 如果没有指定期间，使用默认期间
+        if not annual_periods:
+            from datetime import datetime
+            current_year = datetime.now().year
+            annual_periods = [f"{current_year}-12-31"]
         
         def parse_shares_value(val):
+            """解析总股本值，支持多种格式"""
             if val is None or pd.isna(val):
                 return None
+            
+            MIN_SHARES = 1e6
+            MAX_SHARES = 5e10
+            
+            def validate_and_return(num):
+                if num and MIN_SHARES <= num < MAX_SHARES:
+                    return num
+                return None
+            
+            if isinstance(val, (int, float)):
+                num = float(val)
+                if num <= 0:
+                    return None
+                if MIN_SHARES <= num < MAX_SHARES:
+                    return num
+                if num < 100:
+                    return validate_and_return(num * 100000000)
+                elif num < 1e6:
+                    return validate_and_return(num * 10000)
+                return None
+            
             s = str(val).strip()
             if not s:
                 return None
+            
             try:
                 if '亿' in s:
                     num = float(s.replace('亿', '').replace(',', ''))
-                    return num * 100000000
+                    return validate_and_return(num * 100000000)
                 elif '万' in s:
                     num = float(s.replace('万', '').replace(',', ''))
-                    return num * 10000
+                    return validate_and_return(num * 10000)
                 else:
-                    return float(s.replace(',', ''))
+                    num = float(s.replace(',', ''))
+                    if num <= 0:
+                        return None
+                    if MIN_SHARES <= num < MAX_SHARES:
+                        return num
+                    if num < 100:
+                        return validate_and_return(num * 100000000)
+                    elif num < 1e6:
+                        return validate_and_return(num * 10000)
+                    return None
             except Exception:
                 return None
         
-        def try_api(max_retries=1, delay=1):
-            for attempt in range(max_retries):
-                try:
-                    df_info = ak.stock_individual_info_em(symbol=code)
-                    if df_info is not None and len(df_info) > 0:
-                        shares_val = df_info.get('总股本', 0)
-                        if shares_val and not pd.isna(shares_val):
-                            parsed_val = parse_shares_value(shares_val)
-                            if parsed_val is not None and parsed_val > 0 and parsed_val < 1e18:
-                                print(f'  [buffett] stock_individual_info_em 获取总股本成功: {parsed_val}')
-                                return parsed_val
-                except Exception as e:
-                    print(f'  [buffett] stock_individual_info_em({code}) 失败: {e}')
-            return None
-        
-        shares_from_info = try_api()
-        if shares_from_info:
-            if annual_periods:
-                for period in annual_periods:
-                    total_shares_data[period] = shares_from_info
-            else:
-                from datetime import datetime
-                current_year = datetime.now().year
-                total_shares_data[f"{current_year}-12-31"] = shares_from_info
-            return total_shares_data
-        
-        def try_spot_api():
-            try:
-                df_spot = ak.stock_zh_a_spot_em()
-                mask = df_spot['代码'] == code
-                if mask.any():
-                    row = df_spot[mask].iloc[0]
-                    shares_val = row.get('总股本', row.get('流通股本', 0))
+        # 方法1: stock_zh_a_daily (新浪) - 获取真实总股本
+        try:
+            print(f'  [buffett] 尝试 stock_zh_a_daily (新浪)...')
+            # 获取最近的交易日数据
+            suffix = 'sz' if code.startswith('0') or code.startswith('3') else 'sh'
+            today = pd.Timestamp.now()
+            start_date = (today - pd.Timedelta(days=10)).strftime('%Y%m%d')
+            end_date = today.strftime('%Y%m%d')
+            
+            df_daily = ak.stock_zh_a_daily(
+                symbol=f'{suffix}{code}',
+                start_date=start_date,
+                end_date=end_date,
+                adjust=''
+            )
+            
+            if df_daily is not None and len(df_daily) > 0:
+                # 查找 outstanding_share 字段
+                if 'outstanding_share' in df_daily.columns:
+                    shares_val = df_daily['outstanding_share'].iloc[-1]
                     if shares_val and not pd.isna(shares_val):
-                        try:
-                            shares_float = float(shares_val)
-                            if shares_float > 0:
-                                shares_in_shares = shares_float * 100000000
-                                print(f'  [buffett] stock_zh_a_spot_em 获取总股本成功: {shares_in_shares}')
-                                return shares_in_shares
-                        except Exception:
-                            pass
-            except Exception as e:
-                print(f'  [buffett] stock_zh_a_spot_em({code}) 失败: {e}')
-            return None
+                        shares_float = float(shares_val)
+                        if shares_float > 0 and shares_float < 5e10:
+                            total_shares_data = {}
+                            for period in annual_periods:
+                                total_shares_data[period] = shares_float
+                            print(f'  [buffett] stock_zh_a_daily 成功: {shares_float/1e8:.2f}亿股')
+                            return total_shares_data
+        except Exception as e:
+            print(f'  [buffett] stock_zh_a_daily 失败: {e}')
         
-        shares_from_spot = try_spot_api()
-        if shares_from_spot:
-            if annual_periods:
-                for period in annual_periods:
-                    total_shares_data[period] = shares_from_spot
-            else:
-                from datetime import datetime
-                current_year = datetime.now().year
-                total_shares_data[f"{current_year}-12-31"] = shares_from_spot
-            return total_shares_data
+        # 方法2: stock_financial_debt_ths（历史面值数据，降级使用）
+        try:
+            print(f'  [buffett] 尝试 stock_financial_debt_ths...')
+            df_debt = ak.stock_financial_debt_ths(symbol=code)
+            if df_debt is not None and len(df_debt) > 0:
+                total_shares_data = {}
+                for _, row in df_debt.iterrows():
+                    period = str(row['报告期'])
+                    if period.endswith('-12-31'):
+                        capital_val = row.get('实收资本（或股本）', 0)
+                        if capital_val and not pd.isna(capital_val):
+                            shares = parse_shares_value(capital_val)
+                            if shares and 0 < shares < 5e10:
+                                total_shares_data[period] = shares
+                
+                if total_shares_data:
+                    print(f'  [buffett] stock_financial_debt_ths 成功: {len(total_shares_data)}条记录（面值数据，可能不准确）')
+                    # 填充缺失的年份
+                    for period in annual_periods:
+                        if period not in total_shares_data:
+                            all_periods = sorted(total_shares_data.keys())
+                            default_shares = total_shares_data[all_periods[-1]] if all_periods else list(total_shares_data.values())[0]
+                            total_shares_data[period] = default_shares
+                    return total_shares_data
+        except Exception as e:
+            print(f'  [buffett] stock_financial_debt_ths 失败: {e}')
         
-        if not total_shares_data:
-            try:
-                df_benefit = ak.stock_financial_benefit_ths(symbol=code)
-                if df_benefit is not None and len(df_benefit) > 0:
-                    for _, row in df_benefit.iterrows():
-                        period = str(row['报告期'])
-                        if period.endswith('-12-31'):
-                            shares_val = row.get('总股本', 0)
-                            if shares_val and not pd.isna(shares_val):
-                                try:
-                                    shares_float = float(shares_val)
-                                    if shares_float > 0 and shares_float < 1e18:
-                                        if shares_float < 1000:
-                                            total_shares_data[period] = shares_float * 100000000
-                                        else:
-                                            total_shares_data[period] = shares_float
-                                except Exception:
-                                    pass
-                print(f'  [buffett] stock_financial_benefit_ths 获取到 {len(total_shares_data)} 条总股本记录')
-            except Exception as e:
-                print(f'  [buffett] stock_financial_benefit_ths({code}) 失败: {e}')
-        
-        if not total_shares_data:
-            try:
-                df_debt = ak.stock_financial_debt_ths(symbol=code)
-                if df_debt is not None and len(df_debt) > 0:
-                    for _, row in df_debt.iterrows():
-                        period = str(row['报告期'])
-                        if period.endswith('-12-31'):
-                            capital_val = row.get('实收资本（或股本）', 0)
-                            if capital_val and not pd.isna(capital_val):
-                                s = str(capital_val).strip()
-                                try:
-                                    if '亿' in s:
-                                        num = float(s.replace('亿', '').replace(',', ''))
-                                        shares = num * 100000000
-                                    elif '万' in s:
-                                        num = float(s.replace('万', '').replace(',', ''))
-                                        shares = num * 10000
-                                    else:
-                                        shares = float(s.replace(',', ''))
-                                    
-                                    if shares > 0 and shares < 50000000000:
-                                        total_shares_data[period] = shares
-                                        print(f'  [buffett] stock_financial_debt_ths {period}: 实收资本={capital_val}, 总股本={shares}')
-                                except Exception:
-                                    pass
-            except Exception as e:
-                print(f'  [buffett] stock_financial_debt_ths({code}) 失败: {e}')
-        
-        if not total_shares_data and len(annual_periods) > 0:
-            try:
-                df_sina = ak.stock_financial_report_sina(symbol=f"{code}.SH")
-                if df_sina is None or len(df_sina) == 0:
-                    df_sina = ak.stock_financial_report_sina(symbol=f"{code}.SZ")
-                if df_sina is not None and len(df_sina) > 0:
-                    for _, row in df_sina.iterrows():
-                        period = str(row['report_date'])
-                        if period.endswith('-12-31'):
-                            shares_val = row.get('total_shares', 0)
-                            if shares_val and not pd.isna(shares_val):
-                                try:
-                                    shares_float = float(shares_val)
-                                    if shares_float > 0 and shares_float < 1e18:
-                                        total_shares_data[period] = shares_float
-                                except Exception:
-                                    pass
-                print(f'  [buffett] stock_financial_report_sina 获取到 {len(total_shares_data)} 条总股本记录')
-            except Exception as e:
-                print(f'  [buffett] stock_financial_report_sina({code}) 失败: {e}')
-        
-        print(f'  [buffett] 最终总股本数据: {list(total_shares_data.keys())}, 示例值: {list(total_shares_data.values())[:3]}')
-        return total_shares_data
+        # 所有方法都失败
+        print(f'  [buffett] 所有总股本接口均失败')
+        return {}
 
-    def _fetch_non_fq_price_data(self, code: str):
-        """获取未复权价格数据（用于计算实际市值）"""
+    def _fetch_non_fq_price_data(self, code: str, start_year: int = 2015):
+        """获取未复权价格数据（用于计算实际市值），限制日期范围"""
         import akshare as ak
         import time
         import random
         
         non_fq_close_dict = {}
+        start_date_fmt = f"{start_year}0101"
+        start_date_iso = f"{start_year}-01-01"
         
         def add_suffix(code):
             if code.startswith('6'):
@@ -312,44 +347,93 @@ class BuffettValuationService:
             else:
                 return f'sz{code}'
         
-        def try_fetch(func, *args, **kwargs):
-            nonlocal non_fq_close_dict
-            desc = kwargs.pop('desc', '')
-            date_format = kwargs.pop('date_format', 'YYYY-MM-DD')
-            has_period = kwargs.pop('has_period', True)
-            
-            for retry in range(2):
-                try:
-                    if has_period:
-                        df_price = func(*args, **kwargs)
-                    else:
-                        df_price = func(*args)
-                    if df_price is not None and len(df_price) > 0:
-                        date_col = '日期' if '日期' in df_price.columns else 'date'
-                        close_col = '收盘' if '收盘' in df_price.columns else 'close'
-                        df_price['日期'] = pd.to_datetime(df_price[date_col])
-                        non_fq_close_dict = df_price.set_index('日期')[close_col].to_dict()
-                        print(f'  [buffett] {desc}: {len(non_fq_close_dict)} 条')
-                        return True
-                except Exception as e:
-                    print(f'  [buffett] {desc} 第{retry+1}次失败: {e}')
-                    if retry < 1:
-                        time.sleep(random.uniform(1, 2))
+        def try_fetch_tx():
+            """通过腾讯接口获取不复权价格"""
+            code_tx = add_suffix(code)
+            try:
+                df_price = ak.stock_zh_a_hist_tx(
+                    symbol=code_tx,
+                    start_date=start_date_fmt,
+                    end_date=time.strftime("%Y%m%d"),
+                    adjust=""
+                )
+                if df_price is not None and len(df_price) > 0:
+                    date_col = '日期' if '日期' in df_price.columns else 'date'
+                    close_col = '收盘' if '收盘' in df_price.columns else 'close'
+                    df_price['日期'] = pd.to_datetime(df_price[date_col])
+                    non_fq_close_dict.update(df_price.set_index('日期')[close_col].to_dict())
+                    print(f'  [buffett] 腾讯不复权({code_tx}): {len(non_fq_close_dict)} 条')
+                    return True
+            except Exception as e:
+                print(f'  [buffett] 腾讯不复权 失败: {e}')
             return False
         
-        code_tx = add_suffix(code)
-        try_fetch(ak.stock_zh_a_hist_tx, code_tx, 
-                      desc=f"腾讯未复权({code_tx})", date_format="YYYYMMDD", has_period=False)
+        def try_fetch_em():
+            """通过东财接口获取不复权价格"""
+            try:
+                df_price = ak.stock_zh_a_hist(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date_iso,
+                    end_date=time.strftime("%Y-%m-%d"),
+                    adjust=""
+                )
+                if df_price is not None and len(df_price) > 0:
+                    date_col = '日期' if '日期' in df_price.columns else 'date'
+                    close_col = '收盘' if '收盘' in df_price.columns else 'close'
+                    df_price['日期'] = pd.to_datetime(df_price[date_col])
+                    non_fq_close_dict.update(df_price.set_index('日期')[close_col].to_dict())
+                    print(f'  [buffett] 东财不复权({code}): {len(non_fq_close_dict)} 条')
+                    return True
+            except Exception as e:
+                print(f'  [buffett] 东财不复权 失败: {e}')
+            return False
+        
+        def try_fetch_sina():
+            """通过新浪接口获取不复权价格"""
+            code_sina = add_suffix(code)
+            try:
+                df_price = ak.stock_zh_a_daily(
+                    symbol=code_sina,
+                    start_date=start_date_fmt,
+                    end_date=time.strftime("%Y%m%d"),
+                    adjust=""
+                )
+                if df_price is not None and len(df_price) > 0:
+                    date_col = '日期' if '日期' in df_price.columns else 'date'
+                    close_col = '收盘' if '收盘' in df_price.columns else 'close'
+                    df_price['日期'] = pd.to_datetime(df_price[date_col])
+                    non_fq_close_dict.update(df_price.set_index('日期')[close_col].to_dict())
+                    print(f'  [buffett] 新浪不复权({code_sina}): {len(non_fq_close_dict)} 条')
+                    return True
+            except Exception as e:
+                print(f'  [buffett] 新浪不复权 失败: {e}')
+            return False
+        
+        # 带超时的调用
+        if not _run_with_timeout(try_fetch_tx, 8):
+            _run_with_timeout(try_fetch_em, 8)
+        
+        if not non_fq_close_dict:
+            _run_with_timeout(try_fetch_em, 8)
+        
+        if not non_fq_close_dict:
+            _run_with_timeout(try_fetch_sina, 8)
+        
+        if not non_fq_close_dict:
+            print(f'  [buffett] 所有不复权价格接口均失败')
         
         return non_fq_close_dict
 
-    def _fetch_fq_price_data(self, code: str):
-        """获取后复权价格数据（用于计算持有收益）"""
+    def _fetch_fq_price_data(self, code: str, start_year: int = 2015):
+        """获取后复权价格数据（用于计算持有收益），限制日期范围减少请求量"""
         import akshare as ak
         import time
         import random
         
         fq_close_dict = {}
+        start_date_fmt = f"{start_year}0101"
+        start_date_iso = f"{start_year}-01-01"
         
         def add_suffix(code):
             if code.startswith('6'):
@@ -364,23 +448,23 @@ class BuffettValuationService:
                     if date_format == "YYYYMMDD":
                         if has_period:
                             df_fq = method(symbol=symbol, period="daily", 
-                                          start_date="20000101", 
+                                          start_date=start_date_fmt, 
                                           end_date=time.strftime("%Y%m%d"), 
                                           adjust=adjust)
                         else:
                             df_fq = method(symbol=symbol, 
-                                          start_date="20000101", 
+                                          start_date=start_date_fmt, 
                                           end_date=time.strftime("%Y%m%d"), 
                                           adjust=adjust)
                     else:
                         if has_period:
                             df_fq = method(symbol=symbol, period="daily", 
-                                          start_date="2000-01-01", 
+                                          start_date=start_date_iso, 
                                           end_date=time.strftime("%Y-%m-%d"), 
                                           adjust=adjust)
                         else:
                             df_fq = method(symbol=symbol, 
-                                          start_date="2000-01-01", 
+                                          start_date=start_date_iso, 
                                           end_date=time.strftime("%Y-%m-%d"), 
                                           adjust=adjust)
                     if df_fq is not None and len(df_fq) > 0:
@@ -396,25 +480,46 @@ class BuffettValuationService:
                         time.sleep(random.uniform(1, 2))
             return False
         
-        try_fetch(ak.stock_zh_a_hist_tx, add_suffix(code), "hfq", f"腾讯后复权({add_suffix(code)})", date_format="YYYYMMDD", has_period=False)
+        # 使用超时机制包裹API调用
+        def fetch_via_tx():
+            return try_fetch(ak.stock_zh_a_hist_tx, add_suffix(code), "hfq", 
+                           f"腾讯后复权({add_suffix(code)})", date_format="YYYYMMDD", has_period=False)
         
-        if not fq_close_dict:
-            try_fetch(ak.stock_zh_a_hist, code, "hfq", "东财后复权", date_format="YYYY-MM-DD", has_period=True)
+        def fetch_via_em():
+            return try_fetch(ak.stock_zh_a_hist, code, "hfq", "东财后复权", 
+                           date_format="YYYY-MM-DD", has_period=True)
         
-        if not fq_close_dict:
+        def fetch_via_sina():
             code_sina = add_suffix(code)
-            try_fetch(ak.stock_zh_a_daily, code_sina, "hfq", f"新浪后复权({code_sina})", date_format="YYYYMMDD", has_period=False)
+            return try_fetch(ak.stock_zh_a_daily, code_sina, "hfq", 
+                           f"新浪后复权({code_sina})", date_format="YYYYMMDD", has_period=False)
         
-        if not fq_close_dict:
-            try_fetch(ak.stock_zh_a_hist, code, "qfq", "东财前复权", date_format="YYYY-MM-DD", has_period=True)
+        def fetch_qfq_em():
+            return try_fetch(ak.stock_zh_a_hist, code, "qfq", "东财前复权", 
+                           date_format="YYYY-MM-DD", has_period=True)
         
-        if not fq_close_dict:
+        def fetch_qfq_sina():
             code_sina = add_suffix(code)
-            try_fetch(ak.stock_zh_a_daily, code_sina, "qfq", f"新浪前复权({code_sina})", date_format="YYYYMMDD", has_period=False)
+            return try_fetch(ak.stock_zh_a_daily, code_sina, "qfq", 
+                           f"新浪前复权({code_sina})", date_format="YYYYMMDD", has_period=False)
         
-        if not fq_close_dict:
+        def fetch_qfq_tx():
             code_tx = add_suffix(code)
-            try_fetch(ak.stock_zh_a_hist_tx, code_tx, "qfq", f"腾讯前复权({code_tx})", date_format="YYYYMMDD", has_period=False)
+            return try_fetch(ak.stock_zh_a_hist_tx, code_tx, "qfq", 
+                           f"腾讯前复权({code_tx})", date_format="YYYYMMDD", has_period=False)
+        
+        if _run_with_timeout(fetch_via_tx, 8) and fq_close_dict:
+            pass
+        elif not fq_close_dict and _run_with_timeout(fetch_via_em, 8) and fq_close_dict:
+            pass
+        elif not fq_close_dict and _run_with_timeout(fetch_via_sina, 8) and fq_close_dict:
+            pass
+        elif not fq_close_dict and _run_with_timeout(fetch_qfq_em, 8) and fq_close_dict:
+            pass
+        elif not fq_close_dict and _run_with_timeout(fetch_qfq_sina, 8) and fq_close_dict:
+            pass
+        elif not fq_close_dict and _run_with_timeout(fetch_qfq_tx, 8) and fq_close_dict:
+            pass
         
         if not fq_close_dict:
             print(f'  [buffett] 所有复权价格接口均失败，无法获取复权价格')
@@ -563,7 +668,8 @@ class BuffettValuationService:
         total_dividend = 0
         total_retained_earnings = 0
         
-        adjusted_shares_data = total_shares_data.copy()
+        # 记录修正后的股本数据（仅用于分红计算）
+        dividend_shares_data = total_shares_data.copy()
         
         if len(div_df) > 0 and total_shares_data:
             for period in annual_periods:
@@ -598,10 +704,11 @@ class BuffettValuationService:
                             payout_ratio = dividend_yi / net_profit_yi if net_profit_yi > 0 else 0
                             
                             if payout_ratio < 0.1 and net_profit_yi > 10 and shares < 10000000000:
+                                # 仅修正分红计算用的股本数据
                                 adjusted_shares = shares * 10
-                                adjusted_shares_data[period] = adjusted_shares
+                                dividend_shares_data[period] = adjusted_shares
                                 corrected_dividend = total_per_share_div * adjusted_shares / 10 / 100000000
-                                print(f'  [buffett] 修正总股本 {period}: 原={shares/100000000}亿股, 修正后={adjusted_shares/100000000}亿股 (派息率={payout_ratio}, 修正后分红={corrected_dividend}亿)')
+                                print(f'  [buffett] 修正分红股本 {period}: 原={shares/100000000}亿股, 修正后={adjusted_shares/100000000}亿股 (派息率={payout_ratio:.2%}, 修正后分红={corrected_dividend:.2f}亿)')
         
         for period in annual_periods:
             year = period[:4]
@@ -620,7 +727,8 @@ class BuffettValuationService:
                                 report_year = report_year_str[:4]
                             if report_year == year:
                                 per_share_div = float(row.get('派息比例', row.get('per_share_dividend', row.get('dividend_per_share', 0))))
-                                shares = adjusted_shares_data.get(period, 0)
+                                # 使用修正后的股本数据计算分红
+                                shares = dividend_shares_data.get(period, 0)
                                 if per_share_div > 0 and shares > 0:
                                     yearly_dividend += per_share_div * shares / 10
                         except Exception:
@@ -638,7 +746,7 @@ class BuffettValuationService:
                 'net_profit': net_profit_yi if net_profit is not None else None,
                 'dividend': dividend_amount,
                 'retained_earnings': retained_earnings,
-                'total_shares': adjusted_shares_data.get(period, 0)
+                'total_shares': total_shares_data.get(period, 0)  # 使用原始股本数据
             })
             
             if net_profit is not None:
@@ -648,7 +756,7 @@ class BuffettValuationService:
             if retained_earnings is not None:
                 total_retained_earnings += retained_earnings
         
-        return yearly_data, total_net_profit, total_dividend, total_retained_earnings, adjusted_shares_data
+        return yearly_data, total_net_profit, total_dividend, total_retained_earnings, total_shares_data
 
     def _calculate_market_cap(self, start_year: str, end_year: str, 
                             fq_close_dict: dict, total_shares_data: dict):
@@ -660,9 +768,8 @@ class BuffettValuationService:
         start_fq_date = None
         current_fq_date = None
         
-        print(f'  [buffett] _calculate_market_cap: start_year={start_year}, end_year={end_year}, fq_close_dict size={len(fq_close_dict)}')
-        
         if start_year and end_year and fq_close_dict and total_shares_data:
+            # 获取总股本（所有年份应该相同）
             current_shares = list(total_shares_data.values())[0]
             
             start_next_year = int(start_year) + 1
@@ -680,11 +787,9 @@ class BuffettValuationService:
                 
                 start_fq_price = start_price
                 start_fq_date = str(start_price_date) if start_price_date else None
-                print(f'  [buffett] 起始市值计算: start_date={start_date_str}, actual_date={start_fq_date}, start_price={start_price}, current_shares={current_shares}')
                 
                 if start_price and start_price > 0 and current_shares > 0:
                     start_market_cap = start_price * current_shares / 100000000
-                    print(f'  [buffett] 起始市值计算成功: {start_market_cap} 亿')
             except Exception as e:
                 print(f'  [buffett] 计算起始市值失败: {e}')
             
@@ -704,11 +809,9 @@ class BuffettValuationService:
                 
                 current_fq_price = current_price
                 current_fq_date = str(current_price_date) if current_price_date else None
-                print(f'  [buffett] 当前市值计算: today={end_date_str}, actual_date={current_fq_date}, current_price={current_price}, current_shares={current_shares}')
                 
                 if current_price and current_price > 0 and current_shares > 0:
                     current_market_cap = current_price * current_shares / 100000000
-                    print(f'  [buffett] 当前市值计算成功(后复权价×总股本): {current_market_cap} 亿')
             except Exception as e:
                 print(f'  [buffett] 计算当前市值失败: {e}')
         

@@ -270,6 +270,28 @@
     border-style: solid;
   }
 
+  .notes-cell {
+    min-width: 200px;
+    max-width: 300px;
+  }
+
+  .notes-cell .editable-input {
+    text-align: left;
+    border-style: solid;
+    border-color: transparent;
+    background: #f8f9fa;
+    min-width: 180px;
+  }
+
+  .notes-cell .editable-input:hover {
+    border-color: #ddd;
+  }
+
+  .notes-cell .editable-input:focus {
+    border-color: var(--primary-color);
+    background: #fff;
+  }
+
   .cache-badge {
     display: inline-block;
     margin-left: 12px;
@@ -426,6 +448,42 @@
 
   .summary-item .value.warning {
     color: #f39c12;
+  }
+
+  .summary-notes {
+    display: flex;
+    flex-direction: column;
+    padding: 12px 0 0 0;
+    border-top: 1px solid rgba(193, 0, 0, 0.2);
+    margin-top: 8px;
+  }
+
+  .summary-notes .label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+
+  .notes-textarea {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .notes-textarea:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(193, 0, 0, 0.1);
+  }
+
+  .notes-textarea::placeholder {
+    color: #bbb;
   }
 
   .table-wrapper {
@@ -936,6 +994,7 @@
             <div class="year-select-group">
               <span class="label">选择连续年限：</span>
               <div class="year-options">
+                 <span class="year-option" data-value="3">3年</span>
                 <span class="year-option active" data-value="5">5年</span>
                 <span class="year-option" data-value="8">8年</span>
                 <span class="year-option" data-value="10">10年</span>
@@ -1086,6 +1145,23 @@
       card.appendChild(itemDiv);
     });
     
+    // 添加备注输入框
+    var notesDiv = document.createElement('div');
+    notesDiv.className = 'summary-notes';
+    notesDiv.innerHTML = '<span class="label">备注</span>';
+    var notesInput = document.createElement('textarea');
+    notesInput.className = 'notes-textarea';
+    notesInput.id = 'summary-notes-input';
+    notesInput.placeholder = '点击输入备注...';
+    notesInput.value = data.notes || '';
+    notesInput.addEventListener('input', function() {
+      if (currentData) {
+        currentData.notes = this.value;
+      }
+    });
+    notesDiv.appendChild(notesInput);
+    card.appendChild(notesDiv);
+    
     return card;
   }
 
@@ -1123,6 +1199,37 @@
     return td;
   }
 
+  function createTextEditableCell(value, fieldName, rowIndex, onChange) {
+    var td = document.createElement('td');
+    td.className = 'editable-cell notes-cell';
+    td.dataset.field = fieldName;
+    td.dataset.row = rowIndex;
+    
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'editable-input';
+    input.dataset.field = fieldName;
+    input.dataset.row = rowIndex;
+    input.placeholder = '点击输入备注';
+    
+    if (value !== null && value !== undefined && value !== '') {
+      input.value = value;
+    }
+    
+    input.addEventListener('blur', function() {
+      onChange(rowIndex, fieldName, this.value);
+    });
+    
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        this.blur();
+      }
+    });
+    
+    td.appendChild(input);
+    return td;
+  }
+
   var columnConfig = [
     { key: 'year', label: '年份', visible: true },
     { key: 'price_date', label: '价格日期', visible: true },
@@ -1135,7 +1242,8 @@
     { key: 'shareholder_earnings', label: '股东盈余(亿)', visible: true },
     { key: 'per_share_yield', label: '每股股东盈余收益率', visible: true },
     { key: 'dividend', label: '现金分红(亿)', visible: true },
-    { key: 'retained_earnings', label: '留存收益(亿)', visible: true }
+    { key: 'retained_earnings', label: '留存收益(亿)', visible: true },
+    { key: 'notes', label: '备注', visible: true }
   ];
 
   function createColumnSelector() {
@@ -1306,6 +1414,11 @@
       retainedCell.style.display = columnConfig[11].visible ? '' : 'none';
       row.appendChild(retainedCell);
       
+      var notesCell = createTextEditableCell(item.notes, 'notes', index, onCellChange);
+      notesCell.className = notesCell.className + ' col-12';
+      notesCell.style.display = columnConfig[12].visible ? '' : 'none';
+      row.appendChild(notesCell);
+      
       tbody.appendChild(row);
     });
     
@@ -1313,7 +1426,7 @@
     totalRow.style.fontWeight = '600';
     totalRow.style.background = '#fafafa';
     
-    var totalValues = ['合计', '-', '-', '-', '-', formatNumber(data.total_net_profit), '-', '-', '-', '-', formatNumber(data.total_dividend), formatNumber(data.total_retained_earnings)];
+    var totalValues = ['合计', '-', '-', '-', '-', formatNumber(data.total_net_profit), '-', '-', '-', '-', formatNumber(data.total_dividend), formatNumber(data.total_retained_earnings), '-'];
     totalValues.forEach(function(val, index) {
       var td = document.createElement('td');
       td.className = 'value-num col-' + index;
@@ -1333,6 +1446,8 @@
     if (!currentData || !currentData.yearly_data[rowIndex]) return;
     
     currentData.yearly_data[rowIndex][fieldName] = value;
+    
+    if (fieldName === 'notes') return;
     
     var rowData = currentData.yearly_data[rowIndex];
     var shareholderEarnings = calculateShareholderEarnings(rowData);
@@ -1554,13 +1669,16 @@
     }
   }
 
-  function queryCurrentMarketData(code, startYear, endYear) {
+  function queryCurrentMarketData(code, startYear, endYear, forceRefresh) {
     var url = '/api/buffett_valuation/current_market?code=' + encodeURIComponent(code);
     if (startYear) {
       url += '&start_year=' + encodeURIComponent(startYear);
     }
     if (endYear) {
       url += '&end_year=' + encodeURIComponent(endYear);
+    }
+    if (forceRefresh) {
+      url += '&force=1';
     }
     
     var xhr = new XMLHttpRequest();
@@ -1592,6 +1710,11 @@
               }
               
               updateSummaryValues(currentData);
+              
+              // 显示缓存提示
+              if (data.from_cache) {
+                console.log('当前市值数据来自Redis缓存');
+              }
             }
           } catch (e) {
             console.log('获取当前市场数据失败：' + e.message);
@@ -1669,10 +1792,10 @@
       currentXhr.abort();
     }
 
-    doQueryRemoteData(code, selectedYears);
+    doQueryRemoteData(code, selectedYears, true);  // forceRefresh=true
   });
 
-  function doQueryRemoteData(code, years) {
+  function doQueryRemoteData(code, years, forceRefresh) {
     loading.textContent = '正在获取财务数据...';
     queryRemoteData(code, years, function(error, data) {
       isSubmitting = false;
@@ -1690,7 +1813,18 @@
         resultContent.style.display = 'block';
         currentData = data;
         document.getElementById('refresh-btn').style.display = 'block';
-        showToast('已获取最新数据');
+        
+        // 强制刷新当前市值缓存
+        if (forceRefresh && data.start_year && data.end_year) {
+          queryCurrentMarketData(code, data.start_year, data.end_year, true);
+          // 自动保存刷新后的数据到数据库
+          setTimeout(function() {
+            saveData();
+            showToast('已刷新并保存最新数据');
+          }, 1000);
+        } else {
+          showToast('已获取最新数据');
+        }
       }
     });
   }

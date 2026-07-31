@@ -1,4 +1,13 @@
 import pandas as pd
+import socket
+import requests
+
+# 设置全局超时
+socket.setdefaulttimeout(30)
+
+# 设置 requests 会话超时
+requests_session = requests.Session()
+requests_session.timeout = 30
 
 def _parse_financial_value(val):
     if val is None or val == '' or pd.isna(val):
