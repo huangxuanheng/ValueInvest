@@ -3,3 +3,4 @@ _*.html
 flask*.txt
 venv
 test*.py
+debug*.py

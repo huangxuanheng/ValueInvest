@@ -190,13 +190,61 @@ except Exception as _conn_err:
     print("!" * 72 + "\n")
 
 engine = create_engine(DB_URL, echo=False, future=True,
-                       connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {"connect_timeout": 5},
+                       connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {
+                           "connect_timeout": 5,
+                           "read_timeout": 10,
+                           "write_timeout": 10,
+                       },
                        pool_size=5,
                        max_overflow=10,
-                       pool_recycle=3600,
+                       pool_timeout=10,
+                       pool_recycle=300,
                        pool_pre_ping=True)
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+# -------- 连接池心跳保活 --------
+_db_heartbeat_stop = threading.Event()
+
+def _start_db_pool_heartbeat():
+    """后台心跳线程：每30秒对所有池连接执行 SELECT 1，保持连接活跃，
+    防止 MySQL wait_timeout 或防火墙超时导致连接失效。"""
+    if DB_URL.startswith("sqlite"):
+        return  # SQLite 不需要心跳
+
+    def _heartbeat():
+        while not _db_heartbeat_stop.is_set():
+            try:
+                # 借出池中所有空闲连接逐个 ping，保持活跃
+                checked = 0
+                dead = 0
+                conns = []
+                # 尝试借出最多 pool_size 条连接
+                for _ in range(engine.pool.size() + 1):
+                    try:
+                        conn = engine.connect()
+                        conns.append(conn)
+                    except Exception:
+                        break
+                # 逐个 ping
+                for conn in conns:
+                    try:
+                        conn.execute(text("SELECT 1"))
+                        checked += 1
+                    except Exception:
+                        dead += 1
+                    finally:
+                        conn.close()  # 归还到池中
+                if dead > 0:
+                    print(f"[DB][心跳] 检查 {checked} 条连接，{dead} 条已失效并重建")
+            except Exception as e:
+                print(f"[DB][心跳] 异常: {e}")
+            # 等待30秒（可提前被停止事件唤醒）
+            _db_heartbeat_stop.wait(30)
+
+    thread = threading.Thread(target=_heartbeat, daemon=True, name="db-pool-heartbeat")
+    thread.start()
+    print("[DB][心跳] 连接池心跳线程已启动（每30秒检查所有连接）")
 
 # -------- SQLite 回退/迁移源 engine（仅用于把老 sqlite 数据迁到 MySQL）--------
 _sqlite_engine = None
@@ -326,6 +374,9 @@ def init_db():
             print(f"     - 表 {STOCK_DIVIDEND_TABLE}    (个股分红)：记录数 = {_n_sdv}")
     except Exception as _e2:
         print(f"     - 表 stock_daily / stock_dividend：未就绪 - {_e2}")
+
+    # 启动连接池心跳保活
+    _start_db_pool_heartbeat()
 
 
 def upsert_row(date_val: dt.date, gold: float | None, silver: float | None):
@@ -2642,11 +2693,15 @@ def api_buffett_valuation():
                     BuffettValuation.stock_code == code,
                     BuffettValuation.user_id == user_id
                 ).all()
+                print(f'[API] 查询到 {len(all_cached_records)} 条缓存记录')
+                for rec in all_cached_records:
+                    print(f'  [API] 记录ID={rec.id}, years={rec.years}, start_year={rec.start_year}, end_year={rec.end_year}, updated_at={rec.updated_at}')
                 
                 for record in all_cached_records:
                     if record.yearly_data:
                         try:
                             yearly_data = json.loads(record.yearly_data)
+                            print(f'  [API] 记录ID={record.id}: yearly_data含{len(yearly_data)}条, periods={[item.get("period") for item in yearly_data]}')
                             for item in yearly_data:
                                 period = item.get('period')
                                 if period:
@@ -2656,6 +2711,12 @@ def api_buffett_valuation():
                                         val = item.get(key)
                                         if val is not None:
                                             period_cache[period][key] = val
+                            # 打印折旧摊销和维持性资本支出的缓存值
+                            for period_key, period_val in period_cache.items():
+                                dep = period_val.get('depreciation_amortization')
+                                capex = period_val.get('maintenance_capex')
+                                if dep is not None or capex is not None:
+                                    print(f'  [API] 缓存值 {period_key}: 折旧摊销={dep}, 维持性资本支出={capex}')
                         except Exception as e:
                             print(f'[API] 解析缓存数据失败: {e}')
                             pass
@@ -2674,6 +2735,8 @@ def api_buffett_valuation():
         # 只从数据库覆盖用户手动输入的字段，不覆盖系统自动计算的字段
         # 系统自动计算的字段: non_fq_price, total_shares, market_cap, price_date
         # 用户手动输入的字段: depreciation_amortization, maintenance_capex
+        print(f'[API] 缓存覆盖调试: period_cache有 {len(period_cache)} 个周期: {list(period_cache.keys())}')
+        print(f'[API] 缓存覆盖调试: result有 {len(result["yearly_data"])} 个周期: {[item["period"] for item in result["yearly_data"]]}')
         if period_cache:
             for i, item in enumerate(result['yearly_data']):
                 period = item['period']
@@ -2681,13 +2744,19 @@ def api_buffett_valuation():
                     cached_period = period_cache[period]
                     # 只覆盖用户手动输入的字段
                     for key in ['depreciation_amortization', 'maintenance_capex', 'notes']:
-                        if cached_period.get(key) is not None:
-                            item[key] = cached_period[key]
+                        cached_val = cached_period.get(key)
+                        if cached_val is not None:
+                            print(f'[API] 缓存覆盖: {period} {key}: 系统={item.get(key)} → 缓存={cached_val}')
+                            item[key] = cached_val
+                        else:
+                            print(f'[API] 缓存覆盖跳过: {period} {key}: 缓存值为None, 系统值={item.get(key)}')
+                else:
+                    print(f'[API] 缓存覆盖跳过: {period} 不在缓存中')
         
         # 添加全局notes字段
         result['notes'] = cached_notes
         
-        print(f'[API] buffett_valuation response: total_net_profit={result["total_net_profit"]}, total_retained_earnings={result["total_retained_earnings"]}, start_market_cap={result["start_market_cap"]}')
+        print(f'[API] buffett_valuation response: total_net_profit={result["total_net_profit"]}, total_retained_earnings={result["total_retained_earnings"]}, start_market_cap={result.get("start_market_cap")}, current_market_cap={result.get("current_market_cap")}')
         response = jsonify(result)
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
@@ -2700,6 +2769,9 @@ def api_buffett_valuation():
 
 @app.route("/api/buffett_valuation/cached", methods=["GET"])
 def api_buffett_valuation_cached():
+    import time as _time
+    _t0 = _time.time()
+    
     code = request.args.get("code", "").strip()
     years = int(request.args.get("years", 5))
     
@@ -2716,21 +2788,29 @@ def api_buffett_valuation_cached():
         import json
         from datetime import datetime
         
-        db = SessionLocal()
-        
+        print(f'[API] cached: 获取当前用户...')
         current_user = _current_user()
         user_id = current_user.id if current_user else None
+        print(f'[API] cached: user_id={user_id}, 耗时={_time.time()-_t0:.2f}s')
+        
+        print(f'[API] cached: 打开DB会话...')
+        db = SessionLocal()
+        print(f'[API] cached: DB会话已打开, 耗时={_time.time()-_t0:.2f}s')
         
         if user_id:
+            print(f'[API] cached: 执行DB查询...')
             all_cached_records = db.query(BuffettValuation).filter(
                 BuffettValuation.stock_code == code,
                 BuffettValuation.user_id == user_id
             ).all()
+            print(f'[API] cached: DB查询完成, 记录数={len(all_cached_records)}, 耗时={_time.time()-_t0:.2f}s')
+            for rec in all_cached_records:
+                print(f'  [API] cached: 记录ID={rec.id}, years={rec.years}, start_year={rec.start_year}, end_year={rec.end_year}, updated_at={rec.updated_at}')
         else:
             all_cached_records = []
         
         if not all_cached_records:
-            print(f'[API] buffett_valuation_cached not found: {code}')
+            print(f'[API] buffett_valuation_cached not found: {code}, 耗时={_time.time()-_t0:.2f}s')
             return jsonify({"from_cache": False})
         
         period_cache = {}
@@ -2740,6 +2820,7 @@ def api_buffett_valuation_cached():
             if record.yearly_data:
                 try:
                     yearly_data = json.loads(record.yearly_data)
+                    print(f'  [API] cached: 记录ID={record.id}, years={record.years}, yearly_data含{len(yearly_data)}条, periods={[item.get("period") for item in yearly_data]}')
                     for item in yearly_data:
                         period = item.get('period')
                         if period:
@@ -2749,8 +2830,14 @@ def api_buffett_valuation_cached():
                                 val = item.get(key)
                                 if val is not None:
                                     period_cache[period][key] = val
-                except:
-                    pass
+                    # 打印折旧摊销和维持性资本支出的缓存值
+                    for period_key, period_val in period_cache.items():
+                        dep = period_val.get('depreciation_amortization')
+                        capex = period_val.get('maintenance_capex')
+                        if dep is not None or capex is not None:
+                            print(f'  [API] cached: {period_key}: 折旧摊销={dep}, 维持性资本支出={capex}')
+                except Exception as e:
+                    print(f'  [API] cached: 解析yearly_data失败: {e}')
             
             if record.stock_name:
                 total_data['stock_name'] = record.stock_name
@@ -2783,26 +2870,165 @@ def api_buffett_valuation_cached():
         
         if all_periods_in_cache:
             yearly_data = [period_cache[period] for period in needed_periods]
-            
+
             total_net_profit = sum(item.get('net_profit', 0) for item in yearly_data)
             total_dividend = sum(item.get('dividend', 0) for item in yearly_data)
             total_retained_earnings = sum(item.get('retained_earnings', 0) for item in yearly_data)
-            
+
             first_item = yearly_data[0] if yearly_data else {}
-            start_market_cap = first_item.get('market_cap')
-            
+            last_item = yearly_data[-1] if yearly_data else {}
+
+            # 计算起始市值和当前市值（不复权价 × 总股本）
+            start_market_cap = None
+            current_market_cap = None
+
+            # 辅助函数：从缓存item获取不复权价，支持从market_cap反推
+            def _get_non_fq_price(item):
+                if not item:
+                    return None
+                # 优先从market_cap反推（确保与表格中市值列一致）
+                market_cap = item.get('market_cap')
+                total_shares = item.get('total_shares')
+                if market_cap is not None and total_shares and total_shares > 0:
+                    derived = market_cap * 100000000 / total_shares
+                    # 验证non_fq_price与market_cap一致
+                    non_fq = item.get('non_fq_price')
+                    if non_fq is not None and non_fq > 0:
+                        expected_market_cap = non_fq * total_shares / 100000000
+                        if abs(expected_market_cap - market_cap) > 0.01:
+                            print(f'  [API] 缓存non_fq_price不一致: non_fq_price={non_fq}, 反推市值={expected_market_cap:.2f}亿, 存储市值={market_cap:.2f}亿, 使用反推价格')
+                    return derived
+                # 最后回退：使用non_fq_price
+                non_fq = item.get('non_fq_price')
+                if non_fq is not None and non_fq > 0:
+                    return non_fq
+                return None
+
+            # 起始市值：优先使用first_item的market_cap（确保与表格中第一行市值一致）
+            if first_item and first_item.get('market_cap') is not None:
+                start_market_cap = first_item['market_cap']
+                print(f'  [API] 起始市值(使用first_item.market_cap): {start_market_cap}亿')
+            else:
+                start_price = _get_non_fq_price(first_item)
+                if start_price is not None and first_item.get('total_shares') and first_item['total_shares'] > 0:
+                    start_market_cap = start_price * first_item['total_shares'] / 100000000
+                    print(f'  [API] 起始市值(重算): price={start_price}, shares={first_item["total_shares"]}, market_cap={start_market_cap}亿')
+
+            # 当前市值采用"查询当天的最近交易日口径"
+            # 规则：用 non_fq_close_dict（不复权价）中最大日期的价格 × 当前总股本
+            # 周末/节假日自动取上一个交易日的价格，绝不使用年报次年5月1日口径
+            current_price = None
+            current_price_source = None
+            current_shares = last_item.get('total_shares')
+
+            # 先尝试从 Redis 缓存取（当天key，命中就快速返回）
+            # 但必须校验数据新鲜度——如果 non_fq_data 最大日期超过7天，说明数据过时，强制远程拉取
+            try:
+                from glod.utils.redis_client import redis_client as _redis_client
+                today_str_cache = datetime.now().strftime("%Y-%m-%d")
+                current_cache_key_today = f"buffett:current_market:{code}:{today_str_cache}"
+                cached_current_today = _redis_client.get_cache(current_cache_key_today)
+                if cached_current_today:
+                    cache_fresh = True
+                    # 校验 non_fq_data 新鲜度
+                    if cached_current_today.get('non_fq_data'):
+                        non_fq_data_check = cached_current_today['non_fq_data']
+                        if non_fq_data_check:
+                            all_dates = sorted(non_fq_data_check.keys())
+                            if all_dates:
+                                try:
+                                    max_date = pd.Timestamp(all_dates[-1])
+                                    days_diff = (pd.Timestamp.now() - max_date).days
+                                    if days_diff > 7:
+                                        print(f'  [API] 缓存 non_fq_data 最大日期 {max_date.date()} 已过期 {days_diff} 天，强制远程拉取')
+                                        cache_fresh = False
+                                except Exception:
+                                    pass
+                    
+                    if cache_fresh and cached_current_today.get('current_non_fq_price') and cached_current_today['current_non_fq_price'] > 0:
+                        current_price = cached_current_today['current_non_fq_price']
+                        current_price_source = 'redis_current_non_fq'
+                        if cached_current_today.get('shares') and cached_current_today['shares'] > 0:
+                            current_shares = cached_current_today['shares']
+                    elif cache_fresh and cached_current_today.get('non_fq_data'):
+                        non_fq_data = cached_current_today['non_fq_data']
+                        if non_fq_data:
+                            sorted_keys = sorted(non_fq_data.keys())
+                            for d in reversed(sorted_keys):
+                                p = non_fq_data[d]
+                                if p and p > 0:
+                                    current_price = p
+                                    current_price_source = f'redis_non_fq_data[{d}]'
+                                    break
+                        if current_price and cached_current_today.get('shares') and cached_current_today['shares'] > 0:
+                            current_shares = cached_current_today['shares']
+            except Exception as e:
+                print(f'  [API] 从Redis取今天不复权价失败: {e}')
+
+            # Redis没命中：远程查询最近交易日的不复权价（必须是不复权价！用于计算真实当前市值）
+            if not current_price:
+                try:
+                    from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
+                    service = BuffettValuationService()
+                    # 取起始年的数据，覆盖从起始年到今天
+                    fetch_start_year = int(start_year) if start_year else 2015
+                    non_fq_close_dict_latest = _run_with_timeout(
+                        lambda: service._fetch_non_fq_price_data(code, fetch_start_year), 20)
+                    if non_fq_close_dict_latest and len(non_fq_close_dict_latest) > 0:
+                        # 取最近一个交易日的价格（最大日期）
+                        sorted_dates_latest = sorted(non_fq_close_dict_latest.keys())
+                        for d in reversed(sorted_dates_latest):
+                            p = non_fq_close_dict_latest[d]
+                            if p and p > 0:
+                                current_price = p
+                                current_price_source = f'remote_non_fq[{d}]'
+                                break
+                        # 顺便更新总股本（用最新数据）
+                        shares_data_latest = _run_with_timeout(
+                            lambda: service._fetch_total_shares_data(code, []), 15)
+                        if shares_data_latest:
+                            for v in shares_data_latest.values():
+                                if v and v > 0:
+                                    current_shares = v
+                                    print(f'  [API] 当前市值：远程获取总股本={v} ({v/1e8:.2f}亿股)')
+                                    break
+                        print(f'  [API] 当前市值：远程获取不复权价成功 date={sorted_dates_latest[-1] if sorted_dates_latest else None}, price={current_price}')
+                    else:
+                        print(f'  [API] 当前市值：远程获取不复权价失败/空')
+                except Exception as e:
+                    print(f'  [API] 当前市值远程查询失败: {e}')
+
+            # 已删除回退逻辑：不再用"年报次年5月1日"的价格凑数
+            # 如果取到的 current_price 为空，当前市值就保持为None——避免显示错误的凑数结果
+
+            if current_price is not None and current_shares and current_shares > 0:
+                current_market_cap = current_price * current_shares / 100000000
+                print(f'  [API] 当前市值计算(最近交易日口径): source={current_price_source}, price={current_price}, shares={current_shares}, market_cap={current_market_cap}亿')
+            else:
+                current_market_cap = None
+                print(f'  [API] 当前市值无法计算: current_price={current_price}, current_shares={current_shares}')
+
+            # 市值增长 = 当前市值 - 起始市值 + 总分红
+            market_cap_growth = None
+            if start_market_cap is not None and current_market_cap is not None:
+                market_cap_growth = current_market_cap - start_market_cap + total_dividend
+
+            # 留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益
+            retained_growth_rate = None
+            if (start_market_cap is not None and current_market_cap is not None and
+                total_retained_earnings and total_retained_earnings != 0):
+                retained_growth_rate = (current_market_cap - start_market_cap + total_dividend) / total_retained_earnings * 100
+
             start_fq_price = None
             start_fq_date = None
-            
+
             for record in all_cached_records:
                 if record.start_year == str(start_year) and record.end_year == str(end_year):
                     if record.start_fq_price is not None:
                         start_fq_price = record.start_fq_price
                         start_fq_date = record.start_fq_date
-                    if record.start_market_cap is not None:
-                        start_market_cap = record.start_market_cap
                     break
-            
+
             result = {
                 "stock_code": code,
                 "stock_name": total_data.get('stock_name', code),
@@ -2813,14 +3039,14 @@ def api_buffett_valuation_cached():
                 "total_net_profit": total_net_profit,
                 "total_dividend": total_dividend,
                 "total_retained_earnings": total_retained_earnings,
-                "start_market_cap": start_market_cap,
                 "start_fq_price": start_fq_price,
                 "start_fq_date": start_fq_date,
-                "current_market_cap": None,
                 "current_fq_price": None,
                 "current_fq_date": None,
-                "market_cap_growth": None,
-                "retained_growth_rate": None,
+                "start_market_cap": start_market_cap,
+                "current_market_cap": current_market_cap,
+                "market_cap_growth": market_cap_growth,
+                "retained_growth_rate": retained_growth_rate,
                 "notes": total_data.get('notes', ''),
                 "from_cache": True
             }
@@ -2866,75 +3092,168 @@ def api_buffett_valuation_current_market():
         # 优先从 Redis 读取当前市值数据
         if not force:
             cached_current = redis_client.get_cache(current_cache_key)
-            if cached_current and cached_current.get("current_fq_price") and cached_current.get("current_market_cap"):
-                print(f'[Redis] 命中缓存: {current_cache_key}')
-                # 计算起始市值（如果需要）
-                start_fq_price = None
-                start_fq_date = None
-                start_market_cap = None
+            if cached_current and cached_current.get("current_fq_price"):
+                # 校验 non_fq_data 新鲜度：如果最大日期超过7天，强制远程拉取
+                cache_valid = True
+                non_fq_data_check = cached_current.get("non_fq_data")
+                if non_fq_data_check:
+                    try:
+                        all_dates = sorted(non_fq_data_check.keys())
+                        if all_dates:
+                            max_date = pd.Timestamp(all_dates[-1])
+                            days_diff = (pd.Timestamp.now() - max_date).days
+                            if days_diff > 7:
+                                print(f'[Redis] 缓存 non_fq_data 最大日期 {max_date.date()} 已过期 {days_diff} 天，强制远程拉取')
+                                cache_valid = False
+                    except Exception:
+                        pass
                 
-                if start_year and end_year:
-                    # 从缓存获取总股本
-                    shares = cached_current.get("shares")
+                if cache_valid:
+                    print(f'[Redis] 命中缓存: {current_cache_key}')
+                    # 计算起始市值和当前市值（如果需要）
+                    start_fq_price = None
+                    start_fq_date = None
+                    start_market_cap = None
+                    current_market_cap = None
                     
-                    # 从缓存的 fq_data 获取起始后复权价（将字符串键转为 Timestamp 比较）
-                    fq_data = cached_current.get("fq_data")
-                    if fq_data:
-                        start_next_year = int(start_year) + 1
-                        start_date = pd.Timestamp(f"{start_next_year}-05-01")
-                        fq_data_ts = {pd.Timestamp(k): v for k, v in fq_data.items()}
-                        sorted_dates = sorted(fq_data_ts.keys())
-                        for d in reversed(sorted_dates):
-                            if d <= start_date:
-                                start_fq_price = fq_data_ts[d]
-                                start_fq_date = str(d.date())
-                                break
-                    
-                    # 如果缓存中没有 fq_data 或无法获取起始价，远程查询（带超时）
-                    if not start_fq_price or not shares:
-                        print(f'[Redis] 缓存数据不足，远程查询补充（15秒超时）')
-                        from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
-                        service = BuffettValuationService()
+                    if start_year and end_year:
+                        # 获取起始总股本和当前总股本
+                        start_shares = cached_current.get("start_shares")
+                        current_shares = cached_current.get("current_shares")
+                        if not current_shares:
+                            current_shares = cached_current.get("shares")
                         
-                        # 超时获取后复权价
-                        if not start_fq_price:
-                            print(f'[Redis] 开始远程获取后复权价...')
-                            fq_close_dict = _run_with_timeout(lambda: service._fetch_fq_price_data(code), 15)
-                            if fq_close_dict:
-                                start_next_year = int(start_year) + 1
-                                start_date = pd.Timestamp(f"{start_next_year}-05-01")
-                                sorted_dates = sorted(fq_close_dict.keys())
-                                for d in reversed(sorted_dates):
-                                    if d <= start_date:
-                                        start_fq_price = fq_close_dict[d]
-                                        start_fq_date = str(d.date())
+                        # 如果缓存没有分开存，从 shares_data 中查找
+                        shares_data_cached = cached_current.get("shares_data", {})
+                        if shares_data_cached and isinstance(shares_data_cached, dict):
+                            sorted_available = sorted(shares_data_cached.keys())
+                            if not current_shares and sorted_available:
+                                current_shares = shares_data_cached[sorted_available[-1]]
+                            if not start_shares:
+                                start_period_key = f"{start_year}-12-31"
+                                if start_period_key in shares_data_cached:
+                                    start_shares = shares_data_cached[start_period_key]
+                                else:
+                                    for p in reversed(sorted_available):
+                                        if p <= start_period_key:
+                                            start_shares = shares_data_cached[p]
+                                            break
+                                    if not start_shares and sorted_available:
+                                        start_shares = shares_data_cached[sorted_available[0]]
+                        
+                        # 从缓存的 non_fq_data 获取起始不复权价（必须是不复权价，不能用后复权价替代！）
+                        non_fq_data = cached_current.get("non_fq_data")
+                        fq_data = cached_current.get("fq_data")
+
+                        # 先处理后复权价用于显示（不用于计算市值！）
+                        if fq_data:
+                            start_next_year = int(start_year) + 1
+                            start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                            fq_data_ts = {pd.Timestamp(k): v for k, v in fq_data.items()}
+                            sorted_dates = sorted(fq_data_ts.keys())
+                            for d in reversed(sorted_dates):
+                                if d <= start_date:
+                                    start_fq_price = fq_data_ts[d]
+                                    start_fq_date = str(d.date())
+                                    break
+
+                        # 尝试用不复权价计算起始市值（仅限不复权价，绝不使用后复权价替代）
+                        start_price_for_cap = None
+                        if non_fq_data:
+                            start_next_year = int(start_year) + 1
+                            start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                            non_fq_data_ts = {pd.Timestamp(k): v for k, v in non_fq_data.items()}
+                            sorted_non_fq_dates = sorted(non_fq_data_ts.keys())
+                            for d in reversed(sorted_non_fq_dates):
+                                if d <= start_date:
+                                    non_fq_start = non_fq_data_ts[d]
+                                    if non_fq_start and non_fq_start > 0:
+                                        start_price_for_cap = non_fq_start
+                                        print(f'[Redis] 使用缓存不复权起始价: date={d}, price={non_fq_start}')
                                         break
-                            print(f'[Redis] 后复权价获取完成: start_fq_price={start_fq_price}')
+
+                        # 如果缓存数据不足，远程查询补充（仅限不复权价和总股本）
+                        if not start_price_for_cap or not start_shares or not current_shares:
+                            print(f'[Redis] 缓存数据不足，远程查询补充')
+                            from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
+                            service = BuffettValuationService()
+
+                            if not start_shares or not current_shares:
+                                shares_data = _run_with_timeout(lambda: service._fetch_total_shares_data(code, []), 15)
+                                if shares_data:
+                                    sorted_periods = sorted(shares_data.keys())
+                                    if sorted_periods:
+                                        if not current_shares:
+                                            current_shares = shares_data[sorted_periods[-1]]
+                                        if not start_shares:
+                                            start_period_key = f"{start_year}-12-31"
+                                            if start_period_key in shares_data:
+                                                start_shares = shares_data[start_period_key]
+                                            else:
+                                                for p in reversed(sorted_periods):
+                                                    if p <= start_period_key:
+                                                        start_shares = shares_data[p]
+                                                        break
+                                                if not start_shares:
+                                                    start_shares = shares_data[sorted_periods[0]]
+                                    print(f'[Redis] 总股本获取完成: start_shares={start_shares}, current_shares={current_shares}')
+
+                            if not start_price_for_cap:
+                                non_fq_close_dict = _run_with_timeout(lambda: service._fetch_non_fq_price_data(code, int(start_year)), 10)
+                                if non_fq_close_dict and len(non_fq_close_dict) > 0:
+                                    start_next_year = int(start_year) + 1
+                                    start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                                    sorted_dates = sorted(non_fq_close_dict.keys())
+                                    for d in reversed(sorted_dates):
+                                        if d <= start_date:
+                                            price = non_fq_close_dict[d]
+                                            if price and price > 0:
+                                                start_price_for_cap = price
+                                                print(f'[Redis] 远程不复权起始价: date={d}, price={price}')
+                                                break
                         
-                        # 超时获取总股本
-                        if not shares:
-                            print(f'[Redis] 开始远程获取总股本...')
-                            shares_data = _run_with_timeout(lambda: service._fetch_total_shares_data(code, []), 15)
-                            if shares_data:
-                                shares = list(shares_data.values())[0]
-                            print(f'[Redis] 总股本获取完成: shares={shares}')
-                    
-                    # 计算起始市值
-                    if start_fq_price and start_fq_price > 0 and shares and shares > 0:
-                        start_market_cap = start_fq_price * shares / 100000000
-                
-                result = {
-                    "start_fq_price": start_fq_price,
-                    "start_fq_date": start_fq_date,
-                    "start_market_cap": start_market_cap,
-                    "current_fq_price": cached_current.get("current_fq_price"),
-                    "current_fq_date": cached_current.get("current_fq_date"),
-                    "current_market_cap": cached_current.get("current_market_cap"),
-                    "from_cache": True
-                }
-                _elapsed = _time.time() - _start_time
-                print(f'[API] 缓存命中，总耗时: {_elapsed:.2f}秒')
-                return jsonify(result)
+                        # 计算起始市值 = 起始不复权价 × 起始年份总股本
+                        if start_price_for_cap and start_price_for_cap > 0 and start_shares and start_shares > 0:
+                            start_market_cap = start_price_for_cap * start_shares / 100000000
+                            print(f'[Redis] 起始市值计算: price={start_price_for_cap}, start_shares={start_shares}({start_shares/1e8:.2f}亿股), market_cap={start_market_cap}亿')
+
+                        # 计算当前市值 = 今天不复权价 × 最新总股本
+                        # 优先用缓存的 current_non_fq_price
+                        current_non_fq_price = cached_current.get("current_non_fq_price")
+                        if current_non_fq_price and current_non_fq_price > 0 and current_shares and current_shares > 0:
+                            current_market_cap = current_non_fq_price * current_shares / 100000000
+                            print(f'[Redis] 当前市值计算(缓存non_fq): price={current_non_fq_price}, current_shares={current_shares}({current_shares/1e8:.2f}亿股), market_cap={current_market_cap}亿')
+                        # 次选：从 non_fq_data 中取最近交易日的价格
+                        elif non_fq_data and current_shares and current_shares > 0:
+                            non_fq_data_ts_current = {pd.Timestamp(k): v for k, v in non_fq_data.items()}
+                            sorted_current_dates = sorted(non_fq_data_ts_current.keys())
+                            today_current = pd.Timestamp.now().normalize()
+                            for d in reversed(sorted_current_dates):
+                                if d <= today_current:
+                                    p = non_fq_data_ts_current[d]
+                                    if p and p > 0:
+                                        current_market_cap = p * current_shares / 100000000
+                                        print(f'[Redis] 当前市值计算(non_fq_data): date={d}, price={p}, current_shares={current_shares}({current_shares/1e8:.2f}亿股), market_cap={current_market_cap}亿')
+                                        break
+
+                    # 市值增长 = 当前市值 - 起始市值 + 总分红
+                    market_cap_growth = None
+                    if start_market_cap is not None and current_market_cap is not None:
+                        market_cap_growth = current_market_cap - start_market_cap + (cached_current.get("total_dividend") or 0)
+
+                    result = {
+                        "start_fq_price": start_fq_price,
+                        "start_fq_date": start_fq_date,
+                        "current_fq_price": cached_current.get("current_fq_price"),
+                        "current_fq_date": cached_current.get("current_fq_date"),
+                        "start_market_cap": start_market_cap,
+                        "current_market_cap": current_market_cap,
+                        "market_cap_growth": market_cap_growth,
+                        "from_cache": True
+                    }
+                    _elapsed = _time.time() - _start_time
+                    print(f'[API] 缓存命中，总耗时: {_elapsed:.2f}秒')
+                    return jsonify(result)
         
         # 远程获取最新数据（带超时限制）
         from glod.services.buffett_valuation_service import BuffettValuationService, _run_with_timeout
@@ -2948,7 +3267,6 @@ def api_buffett_valuation_current_market():
             print(f'[API] 后复权价获取超时或失败，跳过远程查询')
             result = {
                 "current_fq_price": None,
-                "current_market_cap": None,
                 "error": "远程获取超时，请稍后重试",
                 "from_cache": False
             }
@@ -2986,21 +3304,83 @@ def api_buffett_valuation_current_market():
         # 超时获取总股本（20秒超时）
         print(f'[API] 开始远程获取总股本...')
         shares_data = _run_with_timeout(lambda: service._fetch_total_shares_data(code, []), 20)
-        print(f'[API] _fetch_total_shares_data 返回值: {shares_data}')
+        print(f'[API] _fetch_total_shares_data 返回值: {len(shares_data) if shares_data else 0}条记录')
         
-        shares = None
+        # 起始市值用起始年份的总股本，当前市值用最新总股本
+        start_shares = None
+        current_shares = None
         if shares_data:
-            shares = list(shares_data.values())[0]
+            # 当前总股本：取最新年份的（按period排序取最大的）
+            sorted_periods = sorted(shares_data.keys())
+            if sorted_periods:
+                latest_period = sorted_periods[-1]
+                current_shares = shares_data[latest_period]
+                print(f'[API] 当前总股本: period={latest_period}, shares={current_shares}')
+            
+            # 起始总股本：找起始年份对应的period
+            if start_year:
+                start_period_key = f"{start_year}-12-31"
+                if start_period_key in shares_data:
+                    start_shares = shares_data[start_period_key]
+                    print(f'[API] 起始总股本(精确匹配): period={start_period_key}, shares={start_shares}')
+                else:
+                    # 往前找最近的一个period
+                    for p in reversed(sorted_periods):
+                        if p <= start_period_key:
+                            start_shares = shares_data[p]
+                            print(f'[API] 起始总股本(就近匹配): period={p}, shares={start_shares}')
+                            break
+                    if not start_shares and sorted_periods:
+                        start_shares = shares_data[sorted_periods[0]]
+                        print(f'[API] 起始总股本(兜底): period={sorted_periods[0]}, shares={start_shares}')
         
+        # 尝试获取不复权价（必须是不复权价，不能用后复权价替代！20秒超时足够多数据源轮询）
+        non_fq_close_dict = _run_with_timeout(lambda: service._fetch_non_fq_price_data(code, int(start_year) if start_year else 2015), 20)
+
+        # 计算起始市值和当前市值：必须是不复权价 × 总股本，绝不使用后复权价！
+        start_price_for_cap = None
+        current_price_for_cap = None
+
+        if non_fq_close_dict and len(non_fq_close_dict) > 0:
+            # 从不复权数据查找起始日价格（次年5月1日前最近交易日）
+            if start_year and end_year:
+                start_next_year = int(start_year) + 1
+                start_date = pd.Timestamp(f"{start_next_year}-05-01")
+                sorted_non_fq_dates = sorted(non_fq_close_dict.keys())
+                for d in reversed(sorted_non_fq_dates):
+                    if d <= start_date:
+                        non_fq_start = non_fq_close_dict[d]
+                        if non_fq_start and non_fq_start > 0:
+                            start_price_for_cap = non_fq_start
+                            print(f'[API] 使用不复权起始价: date={d}, price={non_fq_start}')
+                            break
+
+            # 从不复权数据查找当前日价格（今天最近交易日）
+            today_ts = pd.Timestamp.now().normalize()
+            sorted_non_fq_dates = sorted(non_fq_close_dict.keys())
+            for d in reversed(sorted_non_fq_dates):
+                if d <= today_ts:
+                    non_fq_current = non_fq_close_dict[d]
+                    if non_fq_current and non_fq_current > 0:
+                        current_price_for_cap = non_fq_current
+                        print(f'[API] 使用不复权当前价: date={d}, price={non_fq_current}')
+                        break
+
+        # 起始市值 = 起始不复权价 × 起始年份总股本
         start_market_cap = None
-        if start_fq_price and start_fq_price > 0 and shares and shares > 0:
-            start_market_cap = start_fq_price * shares / 100000000
-            print(f'[API] 起始市值计算: start_fq_price={start_fq_price}, shares={shares}, start_market_cap={start_market_cap}')
-        
+        if start_price_for_cap and start_price_for_cap > 0 and start_shares and start_shares > 0:
+            start_market_cap = start_price_for_cap * start_shares / 100000000
+            print(f'[API] 起始市值计算: price={start_price_for_cap}, start_shares={start_shares}({start_shares/1e8:.2f}亿股), market_cap={start_market_cap}亿')
+        else:
+            print(f'[API] 起始市值无法计算: start_price_for_cap={start_price_for_cap}, start_shares={start_shares}')
+
+        # 当前市值 = 今天不复权价 × 最新总股本
         current_market_cap = None
-        if current_price and current_price > 0 and shares and shares > 0:
-            current_market_cap = current_price * shares / 100000000
-            print(f'[API] 当前市值计算: current_price={current_price}, shares={shares}, current_market_cap={current_market_cap}')
+        if current_price_for_cap and current_price_for_cap > 0 and current_shares and current_shares > 0:
+            current_market_cap = current_price_for_cap * current_shares / 100000000
+            print(f'[API] 当前市值计算: price={current_price_for_cap}, current_shares={current_shares}({current_shares/1e8:.2f}亿股), market_cap={current_market_cap}亿')
+        else:
+            print(f'[API] 当前市值无法计算: current_price_for_cap={current_price_for_cap}, current_shares={current_shares}')
         
         # 缓存当前市值数据到 Redis（0点过期）
         if current_price and current_market_cap:
@@ -3008,22 +3388,39 @@ def api_buffett_valuation_current_market():
                 "current_fq_price": current_price,
                 "current_fq_date": str(current_date) if current_date else None,
                 "current_market_cap": current_market_cap,
-                "shares": shares,
+                "shares": current_shares,
+                "current_shares": current_shares,
+                "start_shares": start_shares,
+                "shares_data": {str(k): v for k, v in shares_data.items()} if shares_data else {},
                 "fq_data": {str(k): v for k, v in fq_close_dict.items()},
                 "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
+            # 如果获取到不复权价，也缓存起来供后续使用
+            if non_fq_close_dict and len(non_fq_close_dict) > 0:
+                cache_data["non_fq_data"] = {str(k): v for k, v in non_fq_close_dict.items()}
+            if current_price_for_cap != current_price:
+                cache_data["current_non_fq_price"] = current_price_for_cap
+            if start_price_for_cap:
+                cache_data["start_non_fq_price"] = start_price_for_cap
             # 缓存有效期到今天0点
             ttl = redis_client.get_seconds_until_midnight()
             if redis_client.set_cache(current_cache_key, cache_data, expire_at_midnight=True):
                 print(f'[Redis] 缓存成功: {current_cache_key}, 剩余{ttl}秒过期')
         
+        # 市值增长 = 当前市值 - 起始市值 + 总分红（当前市值端点无 total_dividend，前端用已有的值计算）
+        market_cap_growth = None
+        if start_market_cap is not None and current_market_cap is not None:
+            # current_market 端点不知道 total_dividend，前端会用主数据的 total_dividend 重新计算
+            market_cap_growth = current_market_cap - start_market_cap
+
         result = {
             "start_fq_price": start_fq_price,
             "start_fq_date": start_fq_date,
-            "start_market_cap": start_market_cap,
             "current_fq_price": current_price,
             "current_fq_date": str(current_date) if current_date else None,
+            "start_market_cap": start_market_cap,
             "current_market_cap": current_market_cap,
+            "market_cap_growth": market_cap_growth,
             "from_cache": False
         }
         

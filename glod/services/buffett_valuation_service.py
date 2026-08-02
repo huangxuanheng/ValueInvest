@@ -125,35 +125,114 @@ class BuffettValuationService:
         
         # 使用原始的 total_shares_data 计算市值，而不是 adjusted_shares_data
         yearly_market_cap, yearly_non_fq_price, yearly_price_date = self._calculate_yearly_market_cap(annual_periods, non_fq_close_dict, total_shares_data)
-        
-        depreciation_amortization_data = self._calculate_depreciation_amortization(annual_periods, cashflow_data)
-        
+
+        # 折旧与摊销、维持性资本支出：不再远程查询，由用户手动填入
+        # 远程计算数据不准确，改为返回空字典，用户填入的值通过API覆盖逻辑保存到数据库
+        depreciation_amortization_data = {}
+        print(f'[buffett] 折旧与摊销：跳过远程查询，由用户手动填入')
+
         capex_data = cashflow_data.get('购建固定资产、无形资产和其他长期资产支付的现金', {})
-        
-        expansion_capex_data = _run_with_timeout(
-            lambda: self._calculate_expansion_capex(code, annual_periods, balance_data), 
-            45
-        )
-        if expansion_capex_data is None:
-            expansion_capex_data = {}
-            print(f'[buffett] 扩张性资本支出计算超时，使用空数据')
-        
-        # PDF补充数据是辅助功能，超时不阻塞主流程
-        _run_with_timeout(
-            lambda: self._supplement_data_from_pdf(code, annual_periods, cashflow_data, depreciation_amortization_data, expansion_capex_data),
-            90
-        )
-        
-        maintenance_capex_data = self._calculate_maintenance_capex(annual_periods, capex_data, expansion_capex_data)
-        
+
+        # 扩张性资本支出：已停用远程查询
+        expansion_capex_data = {}
+        print(f'[buffett] 扩张性资本支出：跳过远程查询')
+
+        # 维持性资本支出：跳过远程计算，由用户手动填入
+        maintenance_capex_data = {}
+        print(f'[buffett] 维持性资本支出：跳过远程查询，由用户手动填入')
+
         shareholder_earnings_data = self._calculate_shareholder_earnings(annual_periods, net_profit_data, depreciation_amortization_data, maintenance_capex_data)
-        
-        start_market_cap, current_market_cap, start_fq_price, current_fq_price, start_fq_date, current_fq_date = \
-            self._calculate_market_cap(start_year, end_year, fq_close_dict, total_shares_data)
-        
-        market_cap_growth, retained_growth_rate = \
-            self._calculate_growth_rates(start_market_cap, current_market_cap, total_retained_earnings)
-        
+
+        # 计算起始市值和当前市值（用不复权价 × 总股本）
+        # 注意：必须直接使用 yearly_non_fq_price 和 total_shares_data 字典，
+        # 因为此时 yearly_data 的 item 尚未被赋值 non_fq_price 字段（赋值在下方循环中执行）
+        start_market_cap = None
+        current_market_cap = None
+        start_fq_price = None
+        current_fq_price = None
+        start_fq_date = None
+        current_fq_date = None
+
+        if yearly_data and len(yearly_data) > 0:
+            first_period = yearly_data[0]['period']
+            last_period = yearly_data[-1]['period']
+
+            # 获取总股本：优先使用对应期间数据，若无则回退到第一个可用值
+            def _get_shares_for_period(period):
+                shares = total_shares_data.get(period)
+                if not shares or shares <= 0:
+                    for v in total_shares_data.values():
+                        if v and v > 0:
+                            return v
+                return shares
+
+            # 从多个来源获取不复权价：优先 yearly_non_fq_price → 反推 → non_fq_close_dict 直接查找
+            def _get_non_fq_price(period):
+                # 来源1：yearly_non_fq_price 字典（已通过 _calculate_yearly_market_cap 计算）
+                price = yearly_non_fq_price.get(period)
+                if price is not None and price > 0:
+                    return price
+
+                # 来源2：从 yearly_market_cap 和 total_shares 反推
+                market_cap = yearly_market_cap.get(period)
+                shares = _get_shares_for_period(period)
+                if market_cap is not None and shares and shares > 0:
+                    derived = market_cap * 100000000 / shares
+                    print(f'[buffett] 从市值反推不复权价: period={period}, market_cap={market_cap}亿, shares={shares}, price={derived}')
+                    return derived
+
+                # 来源3：从 non_fq_close_dict 直接查找最近交易日的价格
+                if non_fq_close_dict:
+                    year = period[:4]
+                    try:
+                        next_year = int(year) + 1
+                        target_date = pd.Timestamp(f"{next_year}-05-01")
+                        sorted_dates = sorted(non_fq_close_dict.keys())
+                        for d in reversed(sorted_dates):
+                            if d <= target_date:
+                                price = non_fq_close_dict[d]
+                                if price and price > 0:
+                                    print(f'[buffett] 从non_fq_close_dict查找不复权价: period={period}, date={d}, price={price}')
+                                    return price
+                    except Exception:
+                        pass
+
+                print(f'[buffett] 无法获取不复权价: period={period}')
+                return None
+
+            # 起始市值 = 起始不复权价 × 起始总股本（亿元）
+            # 起始市值采用"次年5月1日前最近交易日"的价格，与年报口径对齐
+            start_price = _get_non_fq_price(first_period)
+            start_shares = _get_shares_for_period(first_period)
+            if start_price is not None and start_shares and start_shares > 0:
+                start_market_cap = start_price * start_shares / 100000000
+                print(f'[buffett] 起始市值计算: price={start_price}, shares={start_shares}, market_cap={start_market_cap}亿')
+
+            # 当前市值 = 查询当天的最近交易日不复权价 × 当前总股本（亿元）
+            # 从 non_fq_close_dict 取最大日期（最近交易日）的价格，周末/节假日自动取上一交易日
+            current_price = None
+            current_price_date = None
+            if non_fq_close_dict:
+                sorted_dates = sorted(non_fq_close_dict.keys())
+                for d in reversed(sorted_dates):
+                    price_val = non_fq_close_dict[d]
+                    if price_val and price_val > 0:
+                        current_price = price_val
+                        current_price_date = d
+                        break
+
+            current_shares = _get_shares_for_period(last_period)
+            if current_price is not None and current_shares and current_shares > 0:
+                current_market_cap = current_price * current_shares / 100000000
+                print(f'[buffett] 当前市值计算(最近交易日口径): date={current_price_date}, price={current_price}, shares={current_shares}, market_cap={current_market_cap}亿')
+            else:
+                current_market_cap = None
+                print(f'[buffett] 当前市值无法计算: current_price={current_price}, current_shares={current_shares}')
+
+        # 留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益
+        retained_growth_rate = self._calculate_retained_growth_rate_v2(
+            start_market_cap, current_market_cap, total_dividend, total_retained_earnings)
+
         for i, item in enumerate(yearly_data):
             period = item['period']
             item['market_cap'] = yearly_market_cap.get(period)
@@ -165,14 +244,19 @@ class BuffettValuationService:
             item['expansion_capex'] = expansion_capex_data.get(period)
             item['maintenance_capex'] = maintenance_capex_data.get(period)
             item['shareholder_earnings'] = shareholder_earnings_data.get(period)
-        
-        print(f'[buffett] 起始市值: {start_market_cap}, 当前市值: {current_market_cap}')
+
+        # 市值增长 = 当前市值 - 起始市值 + 总分红
+        market_cap_growth = None
+        if start_market_cap is not None and current_market_cap is not None:
+            market_cap_growth = current_market_cap - start_market_cap + total_dividend
+
+        print(f'[buffett] 起始市值(不复权): {start_market_cap}, 当前市值(不复权): {current_market_cap}')
         print(f'[buffett] 总净利润: {total_net_profit}, 总分红: {total_dividend}, 总留存收益: {total_retained_earnings}')
         if market_cap_growth is not None:
-            print(f'[buffett] 市值增长: {market_cap_growth}')
+            print(f'[buffett] 市值增长: {market_cap_growth}亿')
         if retained_growth_rate is not None:
             print(f'[buffett] 留存比值: {retained_growth_rate}%')
-        
+
         return {
             'stock_code': code,
             'stock_name': sec_name,
@@ -183,31 +267,243 @@ class BuffettValuationService:
             'total_net_profit': total_net_profit,
             'total_dividend': total_dividend,
             'total_retained_earnings': total_retained_earnings,
-            'start_market_cap': start_market_cap,
-            'current_market_cap': current_market_cap,
             'start_fq_price': start_fq_price,
             'current_fq_price': current_fq_price,
             'start_fq_date': start_fq_date,
             'current_fq_date': current_fq_date,
+            'start_market_cap': start_market_cap,
+            'current_market_cap': current_market_cap,
             'market_cap_growth': market_cap_growth,
             'retained_growth_rate': retained_growth_rate
         }
 
+    @staticmethod
+    def _parse_dividend_desc(desc: str) -> float:
+        """从分红方案说明中解析10股派息金额，如 '10派6.8元(含税)' -> 6.8"""
+        import re
+        if not desc:
+            return 0.0
+        # 匹配 "10派X" 或 "10派X元" 格式
+        m = re.search(r'派([\d.]+)', str(desc))
+        if m:
+            return float(m.group(1))
+        return 0.0
+
+    @staticmethod
+    def _extract_year_from_date(date_str: str) -> str:
+        """从日期字符串中提取年份，如 '2022-12-26' -> '2022'"""
+        if not date_str or date_str == 'nan':
+            return ''
+        s = str(date_str).strip()
+        if len(s) >= 4:
+            return s[:4]
+        return ''
+
+    @staticmethod
+    def _normalize_record(record: dict) -> dict:
+        """规范化分红记录，修复报告时间为NaN的问题"""
+        rt = record.get('报告时间', '')
+        if not rt or rt == 'nan' or rt == 'None':
+            # 尝试从股权登记日推断年份
+            year = BuffettValuationService._extract_year_from_date(record.get('股权登记日', ''))
+            if year:
+                # 从实施方案分红说明推断类型
+                desc = record.get('实施方案分红说明', '')
+                if '年报' in desc or '年度' in desc:
+                    record['报告时间'] = f'{year}年报'
+                elif '半年' in desc or '中期' in desc:
+                    record['报告时间'] = f'{year}半年报'
+                elif '三季' in desc:
+                    record['报告时间'] = f'{year}三季报'
+                elif '四季' in desc:
+                    record['报告时间'] = f'{year}四季报'
+                else:
+                    record['报告时间'] = f'{year}年'
+        return record
+
+    @staticmethod
+    def _is_report_time_valid(record: dict) -> bool:
+        """检查报告时间是否有效（不是nan或空）"""
+        rt = record.get('报告时间', '')
+        if not rt or rt == 'nan' or rt == 'None':
+            return False
+        return len(str(rt).strip()) >= 4
+
     def _fetch_dividend_data(self, code: str):
-        """获取分红数据"""
+        """获取分红数据 - 同时从巨潮、东方财富、同花顺三个接口获取，合并去重"""
         import akshare as ak
         
-        div_df = None
+        all_records = []
+        
+        # 数据源1: 巨潮资讯 (stock_dividend_cninfo)
         try:
-            div_df = ak.stock_dividend_cninfo(symbol=code)
-            print(f'  [buffett] stock_dividend_cninfo 获取到 {len(div_df) if div_df is not None else 0} 条分红记录')
+            df1 = ak.stock_dividend_cninfo(symbol=code)
+            if df1 is not None and len(df1) > 0:
+                for _, row in df1.iterrows():
+                    reg_date_raw = row.get('股权登记日', '')
+                    reg_date_str = ''
+                    if pd.notna(reg_date_raw):
+                        try:
+                            from datetime import datetime as dt
+                            if isinstance(reg_date_raw, dt):
+                                reg_date_str = reg_date_raw.strftime('%Y-%m-%d')
+                            elif hasattr(reg_date_raw, 'strftime'):
+                                reg_date_str = reg_date_raw.strftime('%Y-%m-%d')
+                            else:
+                                reg_date_str = str(reg_date_raw)
+                        except Exception:
+                            reg_date_str = str(reg_date_raw) if pd.notna(reg_date_raw) else ''
+                    
+                    report_time = row.get('报告时间', '')
+                    report_time_str = str(report_time) if pd.notna(report_time) else ''
+                    
+                    record = {
+                        'source': 'cninfo',
+                        '报告时间': report_time_str,
+                        '分红类型': str(row.get('分红类型', '')),
+                        '派息比例': float(row.get('派息比例', 0) or 0),
+                        '股权登记日': reg_date_str,
+                        '实施方案分红说明': str(row.get('实施方案分红说明', '')),
+                    }
+                    # 修复报告时间为NaN的记录
+                    record = self._normalize_record(record)
+                    
+                    if record['派息比例'] > 0:
+                        all_records.append(record)
+                print(f'  [buffett] stock_dividend_cninfo: {len(df1)} 条')
         except Exception as e:
             print(f'  [buffett] stock_dividend_cninfo({code}) 失败: {e}')
         
-        if div_df is None:
-            div_df = pd.DataFrame()
+        # 数据源2: 东方财富 (stock_fhps_detail_em)
+        try:
+            df2 = ak.stock_fhps_detail_em(symbol=code)
+            if df2 is not None and len(df2) > 0:
+                em_count = 0
+                for _, row in df2.iterrows():
+                    cash_div = row.get('现金分红-现金分红比例')
+                    if cash_div is not None and pd.notna(cash_div) and float(cash_div) > 0:
+                        period = row.get('报告期')
+                        if period:
+                            period_str = str(period)
+                            try:
+                                from datetime import datetime as dt
+                                if isinstance(period, dt):
+                                    period_str = period.strftime('%Y-%m-%d')
+                                elif hasattr(period, 'strftime'):
+                                    period_str = period.strftime('%Y-%m-%d')
+                            except Exception:
+                                pass
+                            
+                            reg_date_raw = row.get('股权登记日', '')
+                            reg_date_str = ''
+                            if pd.notna(reg_date_raw):
+                                try:
+                                    if isinstance(reg_date_raw, dt):
+                                        reg_date_str = reg_date_raw.strftime('%Y-%m-%d')
+                                    elif hasattr(reg_date_raw, 'strftime'):
+                                        reg_date_str = reg_date_raw.strftime('%Y-%m-%d')
+                                    else:
+                                        reg_date_str = str(reg_date_raw)
+                                except Exception:
+                                    reg_date_str = str(reg_date_raw) if pd.notna(reg_date_raw) else ''
+                            
+                            progress = str(row.get('方案进度', ''))
+                            if '实施' in progress or progress == '':
+                                record = {
+                                    'source': 'em',
+                                    '报告时间': period_str,
+                                    '分红类型': '现金分红',
+                                    '派息比例': float(cash_div),
+                                    '股权登记日': reg_date_str,
+                                    '实施方案分红说明': str(row.get('现金分红-现金分红比例描述', '')),
+                                }
+                                record = self._normalize_record(record)
+                                
+                                # 去重：如果已存在相同派息比例+股权登记日，优先保留报告时间有效的
+                                is_dup = False
+                                for i, existing in enumerate(all_records):
+                                    if (abs(existing['派息比例'] - record['派息比例']) < 0.001 and
+                                        existing['股权登记日'] == record['股权登记日']):
+                                        # 如果现有记录的报告时间无效，用新记录替换
+                                        if not self._is_report_time_valid(existing) and self._is_report_time_valid(record):
+                                            all_records[i] = record
+                                        is_dup = True
+                                        break
+                                if not is_dup:
+                                    all_records.append(record)
+                                    em_count += 1
+                print(f'  [buffett] stock_fhps_detail_em: {len(df2)} 条, 新增 {em_count} 条')
+        except Exception as e:
+            print(f'  [buffett] stock_fhps_detail_em({code}) 失败: {e}')
         
-        return div_df
+        # 数据源3: 同花顺 (stock_fhps_detail_ths) - 最完整，含中期/特别分红
+        try:
+            df3 = ak.stock_fhps_detail_ths(symbol=code)
+            if df3 is not None and len(df3) > 0:
+                ths_count = 0
+                for _, row in df3.iterrows():
+                    progress = str(row.get('方案进度', ''))
+                    if '实施' not in progress:
+                        continue
+                    
+                    desc = str(row.get('分红方案说明', ''))
+                    if '不分配' in desc or '不转增' in desc:
+                        continue
+                    
+                    per_share_div = self._parse_dividend_desc(desc)
+                    if per_share_div <= 0:
+                        continue
+                    
+                    period = str(row.get('报告期', ''))
+                    reg_date = row.get('A股股权登记日', '')
+                    reg_date_str = ''
+                    if pd.notna(reg_date):
+                        try:
+                            from datetime import datetime as dt
+                            if isinstance(reg_date, dt):
+                                reg_date_str = reg_date.strftime('%Y-%m-%d')
+                            elif hasattr(reg_date, 'strftime'):
+                                reg_date_str = reg_date.strftime('%Y-%m-%d')
+                            else:
+                                reg_date_str = str(reg_date)
+                        except Exception:
+                            reg_date_str = str(reg_date) if pd.notna(reg_date) else ''
+                    
+                    record = {
+                        'source': 'ths',
+                        '报告时间': period,
+                        '分红类型': '现金分红',
+                        '派息比例': per_share_div,
+                        '股权登记日': reg_date_str,
+                        '实施方案分红说明': desc,
+                    }
+                    record = self._normalize_record(record)
+                    
+                    # 去重：优先保留报告时间有效的记录
+                    is_dup = False
+                    for i, existing in enumerate(all_records):
+                        if (abs(existing['派息比例'] - record['派息比例']) < 0.001 and
+                            existing['股权登记日'] == record['股权登记日']):
+                            # 如果现有记录的报告时间无效，用新记录（同花顺）替换
+                            if not self._is_report_time_valid(existing) and self._is_report_time_valid(record):
+                                all_records[i] = record
+                                print(f'    [ths] 替换无效记录: {record["报告时间"]}')
+                            is_dup = True
+                            break
+                    if not is_dup:
+                        all_records.append(record)
+                        ths_count += 1
+                print(f'  [buffett] stock_fhps_detail_ths: {len(df3)} 条, 新增 {ths_count} 条')
+        except Exception as e:
+            print(f'  [buffett] stock_fhps_detail_ths({code}) 失败: {e}')
+        
+        # 构建合并后的 DataFrame
+        if all_records:
+            merged_df = pd.DataFrame(all_records)
+            print(f'  [buffett] 合并后共 {len(merged_df)} 条分红记录')
+            return merged_df
+        
+        return pd.DataFrame()
 
     def _fetch_total_shares_data(self, code: str, annual_periods: list):
         """获取总股本数据（股数，单位：股）- 顺序调用多个接口"""
@@ -268,41 +564,12 @@ class BuffettValuationService:
                     return None
             except Exception:
                 return None
-        
-        # 方法1: stock_zh_a_daily (新浪) - 获取真实总股本
+
+        # 方法1（首选）: stock_financial_debt_ths - 获取真实总股本（实收资本）
+        # 已验证：海天味业返回 58.52 亿，与年报一致
+        # 优势：能返回历史各年的总股本，按报告期对应
         try:
-            print(f'  [buffett] 尝试 stock_zh_a_daily (新浪)...')
-            # 获取最近的交易日数据
-            suffix = 'sz' if code.startswith('0') or code.startswith('3') else 'sh'
-            today = pd.Timestamp.now()
-            start_date = (today - pd.Timedelta(days=10)).strftime('%Y%m%d')
-            end_date = today.strftime('%Y%m%d')
-            
-            df_daily = ak.stock_zh_a_daily(
-                symbol=f'{suffix}{code}',
-                start_date=start_date,
-                end_date=end_date,
-                adjust=''
-            )
-            
-            if df_daily is not None and len(df_daily) > 0:
-                # 查找 outstanding_share 字段
-                if 'outstanding_share' in df_daily.columns:
-                    shares_val = df_daily['outstanding_share'].iloc[-1]
-                    if shares_val and not pd.isna(shares_val):
-                        shares_float = float(shares_val)
-                        if shares_float > 0 and shares_float < 5e10:
-                            total_shares_data = {}
-                            for period in annual_periods:
-                                total_shares_data[period] = shares_float
-                            print(f'  [buffett] stock_zh_a_daily 成功: {shares_float/1e8:.2f}亿股')
-                            return total_shares_data
-        except Exception as e:
-            print(f'  [buffett] stock_zh_a_daily 失败: {e}')
-        
-        # 方法2: stock_financial_debt_ths（历史面值数据，降级使用）
-        try:
-            print(f'  [buffett] 尝试 stock_financial_debt_ths...')
+            print(f'  [buffett] 尝试 stock_financial_debt_ths (实收资本)...')
             df_debt = ak.stock_financial_debt_ths(symbol=code)
             if df_debt is not None and len(df_debt) > 0:
                 total_shares_data = {}
@@ -314,10 +581,12 @@ class BuffettValuationService:
                             shares = parse_shares_value(capital_val)
                             if shares and 0 < shares < 5e10:
                                 total_shares_data[period] = shares
-                
+
                 if total_shares_data:
-                    print(f'  [buffett] stock_financial_debt_ths 成功: {len(total_shares_data)}条记录（面值数据，可能不准确）')
-                    # 填充缺失的年份
+                    print(f'  [buffett] stock_financial_debt_ths 成功: {len(total_shares_data)}条记录')
+                    for p, s in sorted(total_shares_data.items()):
+                        print(f'    {p}: {s/1e8:.4f} 亿股')
+                    # 填充缺失的年份：用最近的可用值
                     for period in annual_periods:
                         if period not in total_shares_data:
                             all_periods = sorted(total_shares_data.keys())
@@ -326,6 +595,38 @@ class BuffettValuationService:
                     return total_shares_data
         except Exception as e:
             print(f'  [buffett] stock_financial_debt_ths 失败: {e}')
+
+        # 方法2（兜底）: stock_zh_a_daily (新浪) - 获取流通股本（不准确，仅作兜底）
+        # 注意：outstanding_share 实际是"流通股本"，会小于"总股本"
+        try:
+            print(f'  [buffett] 尝试 stock_zh_a_daily (新浪，流通股本兜底)...')
+            # 获取最近的交易日数据
+            suffix = 'sz' if code.startswith('0') or code.startswith('3') else 'sh'
+            today = pd.Timestamp.now()
+            start_date = (today - pd.Timedelta(days=10)).strftime('%Y%m%d')
+            end_date = today.strftime('%Y%m%d')
+
+            df_daily = ak.stock_zh_a_daily(
+                symbol=f'{suffix}{code}',
+                start_date=start_date,
+                end_date=end_date,
+                adjust=''
+            )
+
+            if df_daily is not None and len(df_daily) > 0:
+                # 查找 outstanding_share 字段
+                if 'outstanding_share' in df_daily.columns:
+                    shares_val = df_daily['outstanding_share'].iloc[-1]
+                    if shares_val and not pd.isna(shares_val):
+                        shares_float = float(shares_val)
+                        if shares_float > 0 and shares_float < 5e10:
+                            total_shares_data = {}
+                            for period in annual_periods:
+                                total_shares_data[period] = shares_float
+                            print(f'  [buffett] stock_zh_a_daily 成功(流通股本，不准确): {shares_float/1e8:.2f}亿股')
+                            return total_shares_data
+        except Exception as e:
+            print(f'  [buffett] stock_zh_a_daily 失败: {e}')
         
         # 所有方法都失败
         print(f'  [buffett] 所有总股本接口均失败')
@@ -368,27 +669,6 @@ class BuffettValuationService:
                 print(f'  [buffett] 腾讯不复权 失败: {e}')
             return False
         
-        def try_fetch_em():
-            """通过东财接口获取不复权价格"""
-            try:
-                df_price = ak.stock_zh_a_hist(
-                    symbol=code,
-                    period="daily",
-                    start_date=start_date_iso,
-                    end_date=time.strftime("%Y-%m-%d"),
-                    adjust=""
-                )
-                if df_price is not None and len(df_price) > 0:
-                    date_col = '日期' if '日期' in df_price.columns else 'date'
-                    close_col = '收盘' if '收盘' in df_price.columns else 'close'
-                    df_price['日期'] = pd.to_datetime(df_price[date_col])
-                    non_fq_close_dict.update(df_price.set_index('日期')[close_col].to_dict())
-                    print(f'  [buffett] 东财不复权({code}): {len(non_fq_close_dict)} 条')
-                    return True
-            except Exception as e:
-                print(f'  [buffett] 东财不复权 失败: {e}')
-            return False
-        
         def try_fetch_sina():
             """通过新浪接口获取不复权价格"""
             code_sina = add_suffix(code)
@@ -412,11 +692,8 @@ class BuffettValuationService:
         
         # 带超时的调用
         if not _run_with_timeout(try_fetch_tx, 8):
-            _run_with_timeout(try_fetch_em, 8)
-        
-        if not non_fq_close_dict:
-            _run_with_timeout(try_fetch_em, 8)
-        
+            _run_with_timeout(try_fetch_sina, 8)
+
         if not non_fq_close_dict:
             _run_with_timeout(try_fetch_sina, 8)
         
@@ -647,8 +924,10 @@ class BuffettValuationService:
                         close_price = None
                         for d in reversed(sorted_dates):
                             if d <= target_date:
-                                close_price = float(df_kline.loc[df_kline['日期'] == d, close_col].iloc[0])
-                                break
+                                candidate = float(df_kline.loc[df_kline['日期'] == d, close_col].iloc[0])
+                                if candidate and candidate > 0:
+                                    close_price = candidate
+                                    break
                         
                         if close_price and close_price > 0:
                             print(f'  [buffett] {desc} 获取{year}年不复权收盘价成功: {close_price}')
@@ -837,19 +1116,27 @@ class BuffettValuationService:
             print(f'  [buffett] _fetch_current_market_cap({code}) 失败: {e}')
         return None
 
-    def _calculate_growth_rates(self, start_market_cap: float, current_market_cap: float, 
+    def _calculate_growth_rates(self, start_market_cap: float, current_market_cap: float,
                               total_retained_earnings: float):
-        """计算市值增长和留存比值"""
+        """计算市值增长和留存比值（旧版，保留兼容）"""
         market_cap_growth = None
         retained_growth_rate = None
-        
+
         if start_market_cap is not None and current_market_cap is not None:
             market_cap_growth = current_market_cap - start_market_cap
-        
+
         if market_cap_growth is not None and total_retained_earnings is not None and total_retained_earnings != 0:
             retained_growth_rate = (market_cap_growth / total_retained_earnings) * 100
-        
+
         return market_cap_growth, retained_growth_rate
+
+    def _calculate_retained_growth_rate_v2(self, start_market_cap, current_market_cap,
+                                           total_dividend, total_retained_earnings):
+        """计算留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益"""
+        if (start_market_cap is not None and current_market_cap is not None and
+            total_retained_earnings is not None and total_retained_earnings != 0):
+            return ((current_market_cap - start_market_cap + total_dividend) / total_retained_earnings) * 100
+        return None
 
     def _calculate_yearly_market_cap(self, annual_periods: list, price_dict: dict, total_shares_data: dict):
         """计算每年的市值：使用年报次年5月1日（或最近交易日）的后复权收盘价 × 当年总股本"""

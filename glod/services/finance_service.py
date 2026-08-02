@@ -246,7 +246,6 @@ def fetch_financial_data(code_list, years=5):
                 print(f'  [finance] stock_financial_report_sina({code}) 补充现金流量表数据成功')
             except Exception as e:
                 print(f'  [finance] stock_financial_report_sina({code}) 失败: {e}')
-            
             if balance_data.get('资产合计'):
                 growth_data['资产合计增长率'] = _calc_growth_rate(balance_data['资产合计'], annual_periods)
             if income_data.get('营业总收入'):
@@ -367,7 +366,7 @@ def fetch_financial_data(code_list, years=5):
                 "periods": display_periods,
                 "balance_sheet": balance_data,
                 "income_statement": income_data,
-                "cash_flow": cashflow_data,
+                "cashflow_statement": cashflow_data,
                 "growth_data": growth_data
             })
         except Exception as e:
@@ -378,7 +377,7 @@ def fetch_financial_data(code_list, years=5):
                 "periods": [],
                 "balance_sheet": {},
                 "income_statement": {},
-                "cash_flow": {},
+                "cashflow_statement": {},
                 "growth_data": {},
                 "error": str(e)
             })
