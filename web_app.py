@@ -7031,48 +7031,16 @@ def _fetch_financial_data(code_list, years=5):
                     roe_data[period] = None
             growth_data['ROE'] = roe_data
             
+            # 分红率计算：复用 BuffettValuationService 的三数据源合并分红数据
+            # 分红率 = 年度现金分红 / 归母净利润 × 100
+            # 年度现金分红 = ∑(每股派息 × 当期总股本 / 10)
             dividend_data = {}
             try:
-                import akshare as ak
-                div_df = ak.stock_dividend_cninfo(symbol=code)
+                from glod.services.buffett_valuation_service import BuffettValuationService
+                buffett_svc = BuffettValuationService()
+                div_df = buffett_svc._fetch_dividend_data(code)
                 if div_df is not None and len(div_df) > 0:
-                    total_shares = None
-                    try:
-                        df_info = ak.stock_individual_info_em(symbol=code)
-                        if df_info is not None and len(df_info) > 0:
-                            shares_val = df_info.get('总股本', 0)
-                            if shares_val and not pd.isna(shares_val):
-                                s = str(shares_val).strip()
-                                if '亿' in s:
-                                    total_shares = float(s.replace('亿', '').replace(',', '')) * 100000000
-                                elif '万' in s:
-                                    total_shares = float(s.replace('万', '').replace(',', '')) * 10000
-                                else:
-                                    total_shares = float(s.replace(',', ''))
-                    except Exception:
-                        pass
-                    
-                    if total_shares is None:
-                        try:
-                            df_spot = ak.stock_zh_a_spot_em()
-                            mask = df_spot['代码'] == code
-                            if mask.any():
-                                row = df_spot[mask].iloc[0]
-                                shares_val = row.get('总股本', row.get('流通股本', 0))
-                                if shares_val and not pd.isna(shares_val):
-                                    shares_float = float(shares_val)
-                                    if shares_float > 0:
-                                        total_shares = shares_float * 100000000
-                        except Exception:
-                            pass
-                    
-                    if total_shares is None and balance_data:
-                        for period in annual_periods:
-                            capital_val = balance_data.get('实收资本（或股本）', {}).get(period)
-                            if capital_val and capital_val > 0:
-                                total_shares = capital_val
-                                break
-                    
+                    # 按年度累加每股派息金额（每10股派息 / 10 = 每股派息）
                     div_by_year = {}
                     for _, row in div_df.iterrows():
                         report_year_val = row.get('报告时间', row.get('report_year', row.get('year', '')))
@@ -7081,8 +7049,6 @@ def _fetch_financial_data(code_list, years=5):
                                 report_year_str = str(report_year_val)
                                 if '年报' in report_year_str:
                                     report_year = report_year_str.replace('年报', '')[:4]
-                                elif '三季报' in report_year_str:
-                                    report_year = report_year_str.replace('三季报', '')[:4]
                                 else:
                                     report_year = report_year_str[:4]
                                 per_share_div = float(row.get('派息比例', row.get('per_share_dividend', row.get('dividend_per_share', 0))))
@@ -7092,16 +7058,14 @@ def _fetch_financial_data(code_list, years=5):
                                     div_by_year[report_year] += per_share_div / 10
                             except Exception:
                                 pass
-                    
+
+                    # 计算每个报告期的分红率
                     for period in annual_periods:
                         year = period[:4]
                         yearly_dividend = div_by_year.get(year, 0)
                         if yearly_dividend > 0:
-                            period_shares = None
-                            if balance_data:
-                                period_shares = balance_data.get('实收资本（或股本）', {}).get(period)
-                            if period_shares is None and total_shares:
-                                period_shares = total_shares
+                            # 优先使用当期总股本（实收资本），避免用当前总股本导致历年分红被错误放大
+                            period_shares = balance_data.get('实收资本（或股本）', {}).get(period)
                             if period_shares and period_shares > 0:
                                 yearly_dividend_total = yearly_dividend * period_shares
                                 np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
@@ -7116,18 +7080,18 @@ def _fetch_financial_data(code_list, years=5):
                 else:
                     raise Exception('无分红数据')
             except Exception as e:
-                print(f'[API] stock_dividend_cninfo({code}) 失败，使用现金流数据: {e}')
+                print(f'[API] 分红数据获取失败({code})，使用现金流数据: {e}')
                 for period in annual_periods:
                     dividend_total = cashflow_data.get('分配股利、利润或偿付利息支付的现金', {}).get(period)
                     financial_expense = income_data.get('财务费用', {}).get(period)
-                    
+
                     if financial_expense is None or financial_expense <= 0:
                         financial_expense = 0
-                    
+
                     dividend_only = dividend_total - financial_expense if dividend_total else 0
                     if dividend_only < 0:
                         dividend_only = dividend_total if dividend_total else 0
-                    
+
                     np = income_data.get('归属于母公司所有者的净利润', {}).get(period)
                     if np is not None and np != 0 and dividend_only > 0:
                         dividend_data[period] = (dividend_only / np * 100)
