@@ -3008,16 +3008,16 @@ def api_buffett_valuation_cached():
                 current_market_cap = None
                 print(f'  [API] 当前市值无法计算: current_price={current_price}, current_shares={current_shares}')
 
-            # 市值增长 = 当前市值 - 起始市值 + 总分红
+            # 市值增长 = 当前市值 - 起始市值
             market_cap_growth = None
             if start_market_cap is not None and current_market_cap is not None:
-                market_cap_growth = current_market_cap - start_market_cap + total_dividend
+                market_cap_growth = current_market_cap - start_market_cap
 
-            # 留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益
+            # 留存比值 = (当前市值 - 起始市值) / 总留存收益
             retained_growth_rate = None
             if (start_market_cap is not None and current_market_cap is not None and
                 total_retained_earnings and total_retained_earnings != 0):
-                retained_growth_rate = (current_market_cap - start_market_cap + total_dividend) / total_retained_earnings * 100
+                retained_growth_rate = (current_market_cap - start_market_cap) / total_retained_earnings * 100
 
             start_fq_price = None
             start_fq_date = None
@@ -3236,10 +3236,10 @@ def api_buffett_valuation_current_market():
                                         print(f'[Redis] 当前市值计算(non_fq_data): date={d}, price={p}, current_shares={current_shares}({current_shares/1e8:.2f}亿股), market_cap={current_market_cap}亿')
                                         break
 
-                    # 市值增长 = 当前市值 - 起始市值 + 总分红
+                    # 市值增长 = 当前市值 - 起始市值
                     market_cap_growth = None
                     if start_market_cap is not None and current_market_cap is not None:
-                        market_cap_growth = current_market_cap - start_market_cap + (cached_current.get("total_dividend") or 0)
+                        market_cap_growth = current_market_cap - start_market_cap
 
                     result = {
                         "start_fq_price": start_fq_price,
@@ -3407,10 +3407,9 @@ def api_buffett_valuation_current_market():
             if redis_client.set_cache(current_cache_key, cache_data, expire_at_midnight=True):
                 print(f'[Redis] 缓存成功: {current_cache_key}, 剩余{ttl}秒过期')
         
-        # 市值增长 = 当前市值 - 起始市值 + 总分红（当前市值端点无 total_dividend，前端用已有的值计算）
+        # 市值增长 = 当前市值 - 起始市值
         market_cap_growth = None
         if start_market_cap is not None and current_market_cap is not None:
-            # current_market 端点不知道 total_dividend，前端会用主数据的 total_dividend 重新计算
             market_cap_growth = current_market_cap - start_market_cap
 
         result = {

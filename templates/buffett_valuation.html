@@ -1016,7 +1016,7 @@
                 <li>折旧与摊销 = 固定资产折旧 + 无形资产摊销 + 长期待摊费用摊销</li>
                 <li>维持性资本支出 = 购建固定资产支付的现金 - 扩张性资本支出</li>
                 <li>股东盈余 = 归属于母公司净利润 + 折旧与摊销 - 维持性资本支出</li>
-                <li>留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益</li>
+                <li>留存比值 = (当前市值 - 起始市值) / 总留存收益</li>
               </ul>
             </div>
           </div>
@@ -1114,7 +1114,7 @@
       { label: '起始市值', value: formatNumber(data.start_market_cap), id: 'summary-start-market-cap' },
       { label: '当前市值', value: formatNumber(data.current_market_cap), id: 'summary-current-market-cap' },
       { label: '总分红', value: formatNumber(data.total_dividend), id: 'summary-total-dividend' },
-      { label: '市值增长', value: formatNumber(data.market_cap_growth != null ? data.market_cap_growth : (data.start_market_cap != null && data.current_market_cap != null ? data.current_market_cap - data.start_market_cap + (data.total_dividend || 0) : null)), id: 'summary-market-cap-growth' },
+      { label: '市值增长', value: formatNumber(data.market_cap_growth != null ? data.market_cap_growth : (data.start_market_cap != null && data.current_market_cap != null ? data.current_market_cap - data.start_market_cap : null)), id: 'summary-market-cap-growth' },
       { label: '总留存收益', value: formatNumber(data.total_retained_earnings), id: 'summary-total-retained' },
       { label: '留存比值', value: formatPercent(data.retained_growth_rate), highlight: true, id: 'summary-retained-growth-rate' }
     ];
@@ -1475,7 +1475,7 @@
     p.style.lineHeight = '1.8';
     
     if (data.retained_growth_rate === null || data.retained_growth_rate === undefined) {
-      p.innerHTML = '<strong style="color:#999;">留存比值：无法计算</strong> 由于无法获取市值数据，无法计算留存比值。留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益。';
+      p.innerHTML = '<strong style="color:#999;">留存比值：无法计算</strong> 由于无法获取市值数据，无法计算留存比值。留存比值 = (当前市值 - 起始市值) / 总留存收益。';
     } else if (data.retained_growth_rate >= 100) {
       p.innerHTML = '<strong style="color:#2ecc71;">留存比值 ≥ 100%：优秀！</strong> 公司的留存收益创造了超过100%的市值增长，说明管理层非常优秀，能够高效利用留存收益创造价值。';
     } else if (data.retained_growth_rate >= 50) {
@@ -1492,9 +1492,17 @@
 
   function renderResult(data) {
     currentData = data;
-    
+
+    // 本地即时计算市值增长和留存比值，避免等待额外的网络请求
+    if (data.start_market_cap != null && data.current_market_cap != null) {
+      data.market_cap_growth = data.current_market_cap - data.start_market_cap;
+      if (data.total_retained_earnings && data.total_retained_earnings !== 0) {
+        data.retained_growth_rate = data.market_cap_growth / data.total_retained_earnings * 100;
+      }
+    }
+
     resultContent.innerHTML = '';
-    
+
     var h2 = document.createElement('h2');
     h2.textContent = data.stock_name + '(' + data.stock_code + ') - 巴菲特估值分析';
     if (data.from_cache) {
@@ -1504,7 +1512,7 @@
       h2.appendChild(badge);
     }
     resultContent.appendChild(h2);
-    
+
     resultContent.appendChild(createSummaryCard(data));
     
     var h3 = document.createElement('h3');
@@ -1615,16 +1623,18 @@
       currentMarketCapEl.innerHTML = formatNumber(data.current_market_cap);
     }
 
-    // 市值增长 = 当前市值 - 起始市值 + 总分红
+    // 市值增长 = 当前市值 - 起始市值
     var marketCapGrowthEl = document.getElementById('summary-market-cap-growth');
     if (marketCapGrowthEl && data.start_market_cap != null && data.current_market_cap != null) {
-      var growth = data.current_market_cap - data.start_market_cap + (data.total_dividend || 0);
+      var growth = data.current_market_cap - data.start_market_cap;
       data.market_cap_growth = growth;
       marketCapGrowthEl.innerHTML = formatNumber(growth);
     }
 
+    // 留存比值 = 市值增长 / 总留存收益（本地即时计算）
     var retainedGrowthRateEl = document.getElementById('summary-retained-growth-rate');
-    if (retainedGrowthRateEl) {
+    if (retainedGrowthRateEl && data.market_cap_growth != null && data.total_retained_earnings && data.total_retained_earnings !== 0) {
+      data.retained_growth_rate = data.market_cap_growth / data.total_retained_earnings * 100;
       retainedGrowthRateEl.innerHTML = formatPercent(data.retained_growth_rate);
     }
   }
@@ -1654,10 +1664,10 @@
                 currentData.current_market_cap = data.current_market_cap;
               }
 
-              // 重新计算留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益
+              // 重新计算留存比值 = (当前市值 - 起始市值) / 总留存收益
               if (currentData.start_market_cap !== null && currentData.current_market_cap !== null &&
                   currentData.total_retained_earnings && currentData.total_retained_earnings !== 0) {
-                currentData.retained_growth_rate = (currentData.current_market_cap - currentData.start_market_cap + (currentData.total_dividend || 0)) / currentData.total_retained_earnings * 100;
+                currentData.retained_growth_rate = (currentData.current_market_cap - currentData.start_market_cap) / currentData.total_retained_earnings * 100;
               }
 
               updateSummaryValues(currentData);

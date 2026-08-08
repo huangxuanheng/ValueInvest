@@ -229,7 +229,7 @@ class BuffettValuationService:
                 current_market_cap = None
                 print(f'[buffett] 当前市值无法计算: current_price={current_price}, current_shares={current_shares}')
 
-        # 留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益
+        # 留存比值 = 市值增长 / 总留存收益 = (当前市值 - 起始市值) / 总留存收益
         retained_growth_rate = self._calculate_retained_growth_rate_v2(
             start_market_cap, current_market_cap, total_dividend, total_retained_earnings)
 
@@ -245,10 +245,10 @@ class BuffettValuationService:
             item['maintenance_capex'] = maintenance_capex_data.get(period)
             item['shareholder_earnings'] = shareholder_earnings_data.get(period)
 
-        # 市值增长 = 当前市值 - 起始市值 + 总分红
+        # 市值增长 = 当前市值 - 起始市值
         market_cap_growth = None
         if start_market_cap is not None and current_market_cap is not None:
-            market_cap_growth = current_market_cap - start_market_cap + total_dividend
+            market_cap_growth = current_market_cap - start_market_cap
 
         print(f'[buffett] 起始市值(不复权): {start_market_cap}, 当前市值(不复权): {current_market_cap}')
         print(f'[buffett] 总净利润: {total_net_profit}, 总分红: {total_dividend}, 总留存收益: {total_retained_earnings}')
@@ -1132,10 +1132,10 @@ class BuffettValuationService:
 
     def _calculate_retained_growth_rate_v2(self, start_market_cap, current_market_cap,
                                            total_dividend, total_retained_earnings):
-        """计算留存比值 = (当前市值 - 起始市值 + 总分红) / 总留存收益"""
+        """计算留存比值 = 市值增长 / 总留存收益 = (当前市值 - 起始市值) / 总留存收益"""
         if (start_market_cap is not None and current_market_cap is not None and
             total_retained_earnings is not None and total_retained_earnings != 0):
-            return ((current_market_cap - start_market_cap + total_dividend) / total_retained_earnings) * 100
+            return ((current_market_cap - start_market_cap) / total_retained_earnings) * 100
         return None
 
     def _calculate_yearly_market_cap(self, annual_periods: list, price_dict: dict, total_shares_data: dict):
